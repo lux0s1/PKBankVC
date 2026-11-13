@@ -8,7 +8,7 @@ static inline uint32_t MakeMagic(char a, char b, char c, char d)
 	return (a | b << 8 | c << 16 | d << 24);
 }
 
-bool bankUpdate(uint8_t* bank, uint16_t bytesRead)
+bool bankUpdate(uint8_t* bank, uint32_t bytesRead)
 {
 	// It can't even read the magic/version
 	if (bytesRead < 0x10) return false;

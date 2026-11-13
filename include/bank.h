@@ -8,4 +8,4 @@
  * @param bytesRead The total of read bytes.
  * @return Whether the bankbuffer is the final version.
  */
-bool bankUpdate(uint8_t* bank, uint16_t bytesRead);
+bool bankUpdate(uint8_t* bank, uint32_t bytesRead);

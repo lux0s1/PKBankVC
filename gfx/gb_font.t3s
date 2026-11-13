@@ -1,0 +1,4 @@
+--atlas -f rgba8888 -z auto
+font_gb.png
+font_gb_jp.png
+font_gb_white.png

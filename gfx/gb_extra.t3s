@@ -1,0 +1,27 @@
+--atlas -f rgba8888 -z auto
+bezel_gb.png
+bezel_gbc.png
+title_red.png
+title_blue.png
+title_green.png
+title_yellow.png
+title_gold.png
+title_silver.png
+title_crystal.png
+title_sprites.png
+title_rb_pkm.png
+tc_rb.png
+tc_yellow.png
+tc_gs.png
+tc_crystal_boy.png
+tc_crystal_girl.png
+tc_badges.png
+bag_ui.png
+dex_bg.png
+map_johto.png
+map_kanto.png
+diploma_gen1.png
+diploma_gen2.png
+shiny_star.png
+shiny_star_small.png
+egg_front.png

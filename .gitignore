@@ -1,7 +1,9 @@
 build/
-romfs/
-PHBankGB.elf
-PHBankGB.3dsx
-PHBankGB.smdh
-PHBankGB.xml
-PHBankGB.cia
+romfs/gfx/
+*.elf
+*.3dsx
+*.smdh
+!assets/icon.smdh
+*.cia
+*.map
+*.lst

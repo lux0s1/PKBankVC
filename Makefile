@@ -6,45 +6,21 @@ ifeq ($(strip $(DEVKITARM)),)
 $(error "Please set DEVKITARM in your environment. export DEVKITARM=<path to>devkitARM")
 endif
 
-TOPDIR ?= $(CURDIR)
-include $(DEVKITARM)/3ds_rules
-
-#---------------------------------------------------------------------------------
-# TARGET is the name of the output
-# BUILD is the directory where object files & intermediate files will be placed
-# SOURCES is a list of directories containing source code
-# DATA is a list of directories containing data files
-# INCLUDES is a list of directories containing header files
-#
-# NO_SMDH: if set to anything, no SMDH file is generated.
-# ROMFS is the directory which contains the RomFS, relative to the Makefile (Optional)
-# APP_TITLE is the name of the app stored in the SMDH file (Optional)
-# APP_DESCRIPTION is the description of the app stored in the SMDH file (Optional)
-# APP_AUTHOR is the author of the app stored in the SMDH file (Optional)
-# ICON is the filename of the icon (.png), relative to the project folder.
-#   If not set, it attempts to use one of the following (in this order):
-#     - <Project name>.png
-#     - icon.png
-#     - <libctru folder>/default_icon.png
-#---------------------------------------------------------------------------------
-TARGET		:=	$(notdir $(CURDIR))
+TARGET		:=	PKBankVC
 BUILD		:=	build
-DATA		:=	data
 SOURCES		:=	source source/text
 INCLUDES	:=	include
-# ROMFS		:=	romfs
+GRAPHICS	:=	gfx
+ROMFS		:=	romfs
+GFXBUILD	:=	$(ROMFS)/gfx
 
-APP_TITLE		:=	PHBankGB
-APP_DESCRIPTION	:=	Pokémon Homebrew Bank GB
-APP_AUTHOR		:=	Gocario
+APP_TITLE		:=	PKBankVC
+APP_DESCRIPTION	:=	Pokemon Bank for Virtual Console (GB/GBC)
+APP_AUTHOR		:=	SilverDemon
+APP_ICON		:=	assets/icon-48px.png
 
-NO_SMDH			:=	NO_SMDH
-ICON 			:=	assets/icon-48px.png
 CIA_RSF			:=	assets/build-cia.rsf
-CIA_SMDH		:=	assets/icon.smdh
 CIA_BANNER		:=	assets/banner.bnr
-CIA_BANNER_PNG	:=	assets/banner.png
-CIA_BANNER_WAV	:=	assets/banner_shorter.cwav
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -52,182 +28,75 @@ CIA_BANNER_WAV	:=	assets/banner_shorter.cwav
 ARCH	:=	-march=armv6k -mtune=mpcore -mfloat-abi=hard -mtp=soft
 
 CFLAGS	:=	-g -Wall -O2 -mword-relocations \
-			-fomit-frame-pointer -ffunction-sections \
+			-ffunction-sections \
 			$(ARCH)
 
-CFLAGS	+=	$(INCLUDE) -DARM11 -D_3DS -D__cia
+INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(dir)) \
+			-I$(DEVKITPRO)/libctru/include \
+			-I$(BUILD)
+
+CFLAGS	+=	$(INCLUDE) -D__3DS__
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
 ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS	:=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(BUILD)/$(TARGET).map
 
-# LIBS	:= -lsf2d -lctru -lm
-LIBS	:= -lsfil -lpng -lz -lsf2d -lctru -lm
+LIBPATHS	:= -L$(DEVKITPRO)/libctru/lib
+LIBS		:= -lcitro2d -lcitro3d -lctru -lm
 
-#---------------------------------------------------------------------------------
-# list of directories containing libraries, this must be the top level containing
-# include and lib
-#---------------------------------------------------------------------------------
-# LIBDIRS	:= $(CTRULIB)
-LIBDIRS	:= $(CTRULIB) $(PORTLIBS)
-
+_3DSXFLAGS	:= --smdh=$(TARGET).smdh --romfs=$(ROMFS)
 
 #---------------------------------------------------------------------------------
-# no real need to edit anything past this point unless you need to add additional
-# rules for different file extensions
+# files
 #---------------------------------------------------------------------------------
-ifneq ($(BUILD),$(notdir $(CURDIR)))
-#---------------------------------------------------------------------------------
+CFILES		:= $(foreach dir,$(SOURCES),$(wildcard $(dir)/*.c))
+GFXFILES	:= $(foreach dir,$(GRAPHICS),$(wildcard $(dir)/*.t3s))
 
-export OUTPUT	:=	$(CURDIR)/$(TARGET)
-export TOPDIR	:=	$(CURDIR)
+OFILES		:= $(patsubst %.c,$(BUILD)/%.o,$(notdir $(CFILES)))
+HFILES		:= $(patsubst %.t3s,$(BUILD)/%.h,$(notdir $(GFXFILES)))
+T3XFILES	:= $(patsubst %.t3s,$(GFXBUILD)/%.t3x,$(notdir $(GFXFILES)))
 
-export VPATH	:=	$(foreach dir,$(SOURCES),$(CURDIR)/$(dir)) \
-			$(foreach dir,$(DATA),$(CURDIR)/$(dir))
+VPATH		:= $(SOURCES) $(GRAPHICS)
 
-export DEPSDIR	:=	$(CURDIR)/$(BUILD)
+include $(DEVKITPRO)/devkitARM/base_tools
+export LD	:= $(CC)
 
-CFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.c)))
-CPPFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.cpp)))
-SFILES		:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.s)))
-PICAFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.v.pica)))
-SHLISTFILES	:=	$(foreach dir,$(SOURCES),$(notdir $(wildcard $(dir)/*.shlist)))
-BINFILES	:=	$(foreach dir,$(DATA),$(notdir $(wildcard $(dir)/*.*)))
+.PHONY: all clean cia
 
-#---------------------------------------------------------------------------------
-# use CXX for linking C++ projects, CC for standard C
-#---------------------------------------------------------------------------------
-ifeq ($(strip $(CPPFILES)),)
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CC)
-#---------------------------------------------------------------------------------
-else
-#---------------------------------------------------------------------------------
-	export LD	:=	$(CXX)
-#---------------------------------------------------------------------------------
-endif
-#---------------------------------------------------------------------------------
+all: $(TARGET).3dsx
 
-export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
-			$(PICAFILES:.v.pica=.shbin.o) $(SHLISTFILES:.shlist=.shbin.o) \
-			$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+$(TARGET).3dsx: $(TARGET).elf $(TARGET).smdh $(T3XFILES)
+	@3dsxtool $< $@ $(_3DSXFLAGS)
+	@echo built ... $(notdir $@)
 
-export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
-			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I$(CURDIR)/$(BUILD)
+$(TARGET).smdh: $(APP_ICON)
+	@smdhtool --create "$(APP_TITLE)" "$(APP_DESCRIPTION)" "$(APP_AUTHOR)" $(APP_ICON) $@
+	@echo built ... $(notdir $@)
 
-export LIBPATHS	:=	$(foreach dir,$(LIBDIRS),-L$(dir)/lib)
+$(TARGET).elf: $(OFILES)
+	@echo linking $(notdir $@)
+	@$(LD) $(LDFLAGS) $(OFILES) $(LIBPATHS) $(LIBS) -o $@
 
-ifeq ($(strip $(ICON)),)
-	icons := $(wildcard *.png)
-	ifneq (,$(findstring $(TARGET).png,$(icons)))
-		export APP_ICON := $(TOPDIR)/$(TARGET).png
-	else
-		ifneq (,$(findstring icon.png,$(icons)))
-			export APP_ICON := $(TOPDIR)/icon.png
-		endif
-	endif
-else
-	export APP_ICON := $(TOPDIR)/$(ICON)
-endif
+$(OFILES): | $(BUILD) $(HFILES)
 
-ifeq ($(strip $(NO_SMDH)),)
-	export _3DSXFLAGS += --smdh=$(CURDIR)/$(TARGET).smdh
-endif
+$(BUILD)/%.o: %.c
+	@echo $(notdir $<)
+	@$(CC) -MMD -MP -MF $(BUILD)/$*.d $(CFLAGS) -c $< -o $@
 
-ifneq ($(ROMFS),)
-	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
-endif
+$(BUILD)/%.h $(GFXBUILD)/%.t3x: %.t3s | $(BUILD) $(GFXBUILD)
+	@echo $(notdir $<)
+	@tex3ds -i $< -H $(BUILD)/$*.h -d $(BUILD)/$*.d -o $(GFXBUILD)/$*.t3x
 
-.PHONY: $(BUILD) clean all
+$(BUILD) $(GFXBUILD):
+	@mkdir -p $@
 
-#---------------------------------------------------------------------------------
-all: $(BUILD)
-
-$(BUILD):
-	@[ -d $@ ] || mkdir -p $@
-	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
-
-#---------------------------------------------------------------------------------
-clean:
-	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).elf $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).cia
-
-#---------------------------------------------------------------------------------
-run: $(BUILD)
-	@echo run ...
-	$(DEVKITPRO)/devkitCITRA/citra.exe $(TARGET).elf
-
-#---------------------------------------------------------------------------------
-3dsx: $(BUILD)
-	@echo built ... $(TARGET).3dsx
-
-#---------------------------------------------------------------------------------
-cia: $(BUILD)
-#	@bannertool makebanner -o $(CIA_BANNER) -i $(CIA_BANNER_PNG) -ca $(CIA_BANNER_WAV)
-#	@echo built ... $(CIA_BANNER)
-#	@bannertool makesmdh -o $(CIA_SMDH) -i $(ICON) -s "$(APP_TITLE)" -l "$(APP_DESCRIPTION)" -p "$(APP_AUTHOR)" -fvisible
-#	@echo built ... $(TARGET).smdh
-	@makerom -f cia -target t -exefslogo -o $(TARGET).cia -elf $(TARGET).elf -rsf $(CIA_RSF) -banner $(CIA_BANNER) -icon $(CIA_SMDH)
+cia: all
+	@makerom -f cia -target t -exefslogo -o $(TARGET).cia -elf $(TARGET).elf -rsf $(CIA_RSF) -banner $(CIA_BANNER) -icon $(TARGET).smdh -DAPP_ROMFS="$(ROMFS)"
 	@echo built ... $(TARGET).cia
 
-#---------------------------------------------------------------------------------
-else
+clean:
+	@echo clean ...
+	@rm -fr $(BUILD) $(GFXBUILD) $(TARGET).3dsx $(TARGET).smdh $(TARGET).elf $(TARGET).cia
 
-DEPENDS	:=	$(OFILES:.o=.d)
-
-#---------------------------------------------------------------------------------
-# main targets
-#---------------------------------------------------------------------------------
-ifeq ($(strip $(NO_SMDH)),)
-$(OUTPUT).3dsx	:	$(OUTPUT).elf $(OUTPUT).smdh
-else
-$(OUTPUT).3dsx	:	$(OUTPUT).elf
-endif
-
-$(OUTPUT).elf	:	$(OFILES)
-
-#---------------------------------------------------------------------------------
-# you need a rule like this for each extension you use as binary data
-#---------------------------------------------------------------------------------
-%.bin.o	:	%.bin
-#---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@$(bin2o)
-
-#---------------------------------------------------------------------------------
-%.ttf.o	:	%.ttf
-#---------------------------------------------------------------------------------
-	@echo $(notdir $<)
-	@$(bin2o)
-
-#---------------------------------------------------------------------------------
-# rules for assembling GPU shaders
-#---------------------------------------------------------------------------------
-define shader-as
-	$(eval CURBIN := $(patsubst %.shbin.o,%.shbin,$(notdir $@)))
-	picasso -o $(CURBIN) $1
-	bin2s $(CURBIN) | $(AS) -o $@
-	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"_end[];" > `(echo $(CURBIN) | tr . _)`.h
-	echo "extern const u8" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`"[];" >> `(echo $(CURBIN) | tr . _)`.h
-	echo "extern const u32" `(echo $(CURBIN) | sed -e 's/^\([0-9]\)/_\1/' | tr . _)`_size";" >> `(echo $(CURBIN) | tr . _)`.h
-endef
-
-%.shbin.o : %.v.pica %.g.pica
-	@echo $(notdir $^)
-	@$(call shader-as,$^)
-
-%.shbin.o : %.v.pica
-	@echo $(notdir $<)
-	@$(call shader-as,$<)
-
-%.shbin.o : %.shlist
-	@echo $(notdir $<)
-	@$(call shader-as,$(foreach file,$(shell cat $<),$(dir $<)/$(file)))
-
--include $(DEPENDS)
-
-#---------------------------------------------------------------------------------------
-endif
-#---------------------------------------------------------------------------------------
+-include $(BUILD)/*.d

@@ -15,8 +15,8 @@
  */
 #define ROOT_FOLDER "/"
 #define BASE_FOLDER "/pk/"
-#define DATA_FOLDER "/pk/data/"
-#define ROMFS_FOLDER "/pk/romfs/"
+#define DATA_FOLDER "romfs:/data/"
+#define ROMFS_FOLDER "romfs:/gfx/"
 
 /**
  * @brief Brew folders.

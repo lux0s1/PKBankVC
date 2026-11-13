@@ -1,5 +1,4 @@
 #include <3ds.h>
-#include <sf2d.h>
 #include <stdio.h>
 
 #include "fs.h"
@@ -12,121 +11,156 @@
 #include "version.h"
 #include "personal.h"
 #include "box_viewer.h"
-
-#ifdef __cia
+#include "render.h"
 #include "ts.h"
-#endif
 
 int main(int argc, char* argv[])
 {
 	Result ret = 0, error = 0;
 
-	sf2d_init();
-	
-	// consoleInit(GFX_TOP, NULL);
+	ret = romfsInit();
+	if (R_FAILED(ret))
+	{
+		error |= ERR_FILESYSTEM;
+	}
+
+	ret = renderInit();
+	if (R_FAILED(ret))
+	{
+		error |= ERR_GRAPHICS;
+	}
 
 	ret = gfxLoad();
 	if (R_FAILED(ret))
 	{
-		// Graphics
 		error |= ERR_GRAPHICS;
 	}
 
 	ret = fontLoad();
 	if (R_FAILED(ret))
 	{
-		// Font
 		error |= ERR_FONT;
 	}
 
 	ret = PersonalLoad();
 	if (R_FAILED(ret))
 	{
-		// Data
 		error |= ERR_DATA;
 	}
 
-#ifdef __cia
-#ifdef DEBUG
-	while (!error)
-	{
-		titleEntry.titleid = 0x0004000000171800;
-		titleEntry.mediatype = 3; // To fail FSCIA_Init
-#else
-	while (!error && TS_Loop())
-	{
-#endif
+	// Detect whether we were launched under a specific Pokémon VC title (*hax target)
+	// or as a standalone app (Luma3DS Rosalina .3dsx or installed .cia).
+	uint64_t launchedProgramID = 0;
+	APT_GetProgramID(&launchedProgramID);
+	bool hasTargetTitle = (saveGetGameVersion(launchedProgramID) != NOT_POKEMON);
 
-	ret = FSCIA_Init(titleEntry.titleid, titleEntry.mediatype);
-	if (R_FAILED(ret))
+	if (hasTargetTitle)
 	{
-		// Filesystem
-		error |= ERR_FILESYSTEM;
-	}
+		titleid = launchedProgramID;
 
-	titleid = titleEntry.titleid;
-#else // __3dsx
-	ret = FS_Init();
-	if (R_FAILED(ret))
-	{
-		// Filesystem
-		error |= ERR_FILESYSTEM;
-	}
-
-#ifdef DEBUG
-	titleid = 0x0004000000171800; // Pokémon Jaune
-#else
-	APT_GetProgramID(&titleid);
-#endif
-#endif
-
-	ret = gfxLoadFrame(titleid);
-	if (R_FAILED(ret))
-	{
-		// Graphics
-		error |= ERR_GRAPHICS;
-	}
-
-	ret = saveLoad(argc > 1 ? argv[1] : NULL);
-	if (R_FAILED(ret))
-	{
-		// Save
-		error |= ERR_SAVE;
-	}
-
-	if (!error)
-	{
-		boxViewerInitialize();
-
-		while (aptMainLoop())
+		ret = FS_Init();
+		if (R_FAILED(ret))
 		{
-			gspWaitForVBlank();
-			hidScanInput();
-
-			boxViewerUpdate();
-
-			if (hidKeysDown() & KEY_START) break;
-			
-			boxViewerDraw();
+			error |= ERR_FILESYSTEM;
 		}
 
-		saveSave(argc > 1 ? argv[1] : NULL);
+		ret = gfxLoadFrame(titleid);
+		if (R_FAILED(ret))
+		{
+			error |= ERR_GRAPHICS;
+		}
+
+		ret = saveLoad(argc > 1 ? argv[1] : NULL);
+		if (R_FAILED(ret))
+		{
+			error |= ERR_SAVE;
+		}
+
+		if (!error)
+		{
+			boxViewerInitialize();
+
+			while (aptMainLoop())
+			{
+				hidScanInput();
+
+				boxViewerUpdate();
+
+				if (boxViewerWantsExit()) break;
+
+				boxViewerDraw();
+			}
+
+			saveSave(argc > 1 ? argv[1] : NULL);
+		}
+
+		gfxFreeFrame();
+		FS_Exit();
+	}
+	else
+	{
+		while (!error && TS_Loop())
+		{
+			// If a custom path argument was provided, allow SDMC fallback; otherwise require the title's save archive.
+			ret = (argc > 1)
+				? FSCIA_Init(titleEntry.titleid, titleEntry.mediatype)
+				: FSCIA_InitSaveOnly(titleEntry.titleid, titleEntry.mediatype);
+
+			if (R_FAILED(ret))
+			{
+				// Title has never been launched / has no save archive yet: show message and return to title selector.
+				TS_DrawNoSaveMessage();
+				continue;
+			}
+
+			titleid = titleEntry.titleid;
+
+			ret = gfxLoadFrame(titleid);
+			if (R_FAILED(ret))
+			{
+				error |= ERR_GRAPHICS;
+			}
+
+			ret = saveLoad(argc > 1 ? argv[1] : NULL);
+			if (R_FAILED(ret))
+			{
+				FSCIA_Exit();
+				gfxFreeFrame();
+				TS_DrawNoSaveMessage();
+				continue;
+			}
+
+			if (!error)
+			{
+				boxViewerInitialize();
+
+				while (aptMainLoop())
+				{
+					hidScanInput();
+
+					boxViewerUpdate();
+
+					if (boxViewerWantsExit()) break;
+
+					boxViewerDraw();
+				}
+
+				saveSave(argc > 1 ? argv[1] : NULL);
+			}
+
+			gfxFreeFrame();
+			FSCIA_Exit();
+		}
 	}
 
-	gfxFreeFrame();
-
-#ifdef __cia
-	FSCIA_Exit();
-	} // while (TS_Loop())
-#else // __3dsx
-	FS_Exit();
-#endif
+	fontFree();
+	gfxFree();
+	renderExit();
 
 	if (error)
 	{
-		// TODO Remove when better error display!
+		gfxInitDefault();
 		consoleInit(GFX_TOP, NULL);
-		// ^
 
 		printf("\nProblem happened: 0x%lx\n", error);
 		if (error & ERR_SAVE) printf(" \a Save\n");
@@ -134,15 +168,14 @@ int main(int argc, char* argv[])
 		if (error & ERR_FONT) printf(" \a Font\n");
 		if (error & ERR_GRAPHICS) printf(" \a Graphics\n");
 		if (error & ERR_FILESYSTEM) printf(" \a Filesystem\n");
-		printf("PHBankGB version: %08x\n", VERSION);
+		printf("PKBankVC version: %08x\n", VERSION);
 		printf("Can't start the viewer.\n");
 		printf("Press any key to exit\n");
 		waitKey(KEY_ANY);
+
+		gfxExit();
 	}
 
-	fontFree();
-	gfxFree();
-
-	sf2d_fini();
+	romfsExit();
 	return 0;
 }

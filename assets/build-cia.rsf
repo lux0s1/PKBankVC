@@ -1,11 +1,11 @@
 BasicInfo:
-  Title                   : PHBankGB
+  Title                   : PKBankVC
   ProductCode             : CTR-P-KBGZ
   Logo                    : Homebrew # Nintendo / Licensed / Distributed / iQue / iQueForSystem / Homebrew
 
 RomFs:
   # Specifies the root path of the read only file system to include in the ROM.
-  # RootPath                : romfs
+  RootPath                : $(APP_ROMFS)
 
 TitleInfo:
   Category                : Application
@@ -155,6 +155,8 @@ AccessControlInfo:
    - ac:u
    - act:u
    - am:net
+   - am:u
+   - dsp::DSP
    - boss:U
    - cam:u
    - cecd:u

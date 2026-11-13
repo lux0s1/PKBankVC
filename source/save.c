@@ -4,6 +4,7 @@
 #include "pokedex.h"
 #include "personal.h"
 #include "fs.h"
+#include "items.h"
 
 #include <3ds/result.h>
 #include <math.h>
@@ -15,18 +16,26 @@
 /// 
 typedef enum
 {
-	/* Game */
-	OFFSET_PARTY_FSAV = 0x2F2C,			///< Party Pokémon list
-	OFFSET_PARTY_JSAV = 0x2ED5,			///< Party Pokémon list
-	OFFSET_CURRENT_IDX_FSAV = 0x284C,	///< Current Box index Pokémon list
-	OFFSET_CURRENT_IDX_JSAV = 0x2842,	///< Current Box index Pokémon list
-	OFFSET_CURRENT_FSAV = 0x30C0,		///< Current Box Pokémon list
-	OFFSET_CURRENT_JSAV = 0x302D,		///< Current Box Pokémon list
-	OFFSET_BOX_1 = 0x4000,				///< First group of Pokémon list
-	OFFSET_BOX_2 = 0x6000,				///< Second group of Pokémon list
+	/* Game (Gen I) */
+	OFFSET_PARTY_FSAV = 0x2F2C,			///< Party PokÃ©mon list
+	OFFSET_PARTY_JSAV = 0x2ED5,			///< Party PokÃ©mon list
+	OFFSET_CURRENT_IDX_FSAV = 0x284C,	///< Current Box index PokÃ©mon list
+	OFFSET_CURRENT_IDX_JSAV = 0x2842,	///< Current Box index PokÃ©mon list
+	OFFSET_CURRENT_FSAV = 0x30C0,		///< Current Box PokÃ©mon list
+	OFFSET_CURRENT_JSAV = 0x302D,		///< Current Box PokÃ©mon list
+	OFFSET_BOX_1 = 0x4000,				///< First group of PokÃ©mon list
+	OFFSET_BOX_2 = 0x6000,				///< Second group of PokÃ©mon list
+
+	/* Game (Gen II) */
+	OFFSET_CURRENT_IDX_GS_FSAV = 0x2724,
+	OFFSET_CURRENT_IDX_GS_JSAV = 0x2705,
+	OFFSET_CURRENT_IDX_C_FSAV  = 0x2700,
+	OFFSET_CURRENT_IDX_C_JSAV  = 0x26E2,
+	OFFSET_CURRENT_GS_FSAV     = 0x2D6C,
+	OFFSET_CURRENT_GSC_OTHER   = 0x2D10,
 
 	/* Bank */
-	OFFSET_BBOX_1 = 0x100,			///< First bank group of Pokémon list
+	OFFSET_BBOX_1 = 0x100,			///< First bank group of PokÃ©mon list
 } SAV_PokemonListOffset;
 
 /// 
@@ -44,16 +53,30 @@ typedef enum
 ///
 typedef enum
 {
-	OFFSET_OT_NAME_FSAV = 0x2598,		//< Trainer namee
+	/* Gen I */
+	OFFSET_OT_NAME_FSAV = 0x2598,		//< Trainer name
 	OFFSET_OT_NAME_JSAV = 0x2598,		//< Trainer name
 	OFFSET_RIVAL_NAME_FSAV = 0x25F6,		//< Rival name
 	OFFSET_RIVAL_NAME_JSAV = 0x25F1,		//< Rival name
-	OFFSET_POKEDEX_OWNED_FSAV = 0x25A3,	//< Pokédex owned
-	OFFSET_POKEDEX_OWNED_JSAV = 0x259E,	//< Pokédex owned
-	OFFSET_POKEDEX_SEEN_FSAV = 0x25B6,	//< Pokédex seen
-	OFFSET_POKEDEX_SEEN_JSAV = 0x25B1,	//< Pokédex seen
+	OFFSET_POKEDEX_OWNED_FSAV = 0x25A3,	//< PokÃ©dex owned
+	OFFSET_POKEDEX_OWNED_JSAV = 0x259E,	//< PokÃ©dex owned
+	OFFSET_POKEDEX_SEEN_FSAV = 0x25B6,	//< PokÃ©dex seen
+	OFFSET_POKEDEX_SEEN_JSAV = 0x25B1,	//< PokÃ©dex seen
 	OFFSET_CHECKSUM_FSAV = 0x3523,		//< Checksum
 	OFFSET_CHECKSUM_JSAV = 0x3594,		//< Checksum
+
+	/* Gen II */
+	OFFSET_OT_NAME_GSC = 0x200B,
+	OFFSET_RIVAL_NAME_GSC_FSAV = 0x2021,
+	OFFSET_RIVAL_NAME_GSC_JSAV = 0x2017,
+	OFFSET_POKEDEX_OWNED_GS_FSAV = 0x2A4C,
+	OFFSET_POKEDEX_SEEN_GS_FSAV  = 0x2A6C,
+	OFFSET_POKEDEX_OWNED_C_FSAV  = 0x2A27,
+	OFFSET_POKEDEX_SEEN_C_FSAV   = 0x2A47,
+	OFFSET_POKEDEX_OWNED_GS_JSAV = 0x29CE,
+	OFFSET_POKEDEX_SEEN_GS_JSAV  = 0x29EE,
+	OFFSET_POKEDEX_OWNED_C_JSAV  = 0x29AA,
+	OFFSET_POKEDEX_SEEN_C_JSAV   = 0x29CA,
 } SAV_Offset;
 
 uint64_t titleid;
@@ -63,10 +86,14 @@ SAV_Game sgame;
 SAV_Bank sbank;
 SAV_GameVersion vgame;
 SAV_GameLang lgame;
+static uint32_t saveFileSize = 0x8000;
 
 Result saveLoad(const char* path)
 {
 	Result ret;
+
+	memset(&sgame, 0, sizeof(SAV_Game));
+	memset(save, 0, SAVE_SIZE);
 
 	vgame = saveGetGameVersion(titleid);
 	lgame = saveGetGameLang(titleid);
@@ -91,35 +118,60 @@ void saveSave(const char* path)
 
 	bankWriteData(bank, &sbank);
 	bankWriteFile(bank, BANK_FOLDER BANKGB_FILE);
+	bankStoreSave();
+
+	memset(&sgame, 0, sizeof(SAV_Game));
+	memset(save, 0, SAVE_SIZE);
 }
 
 SAV_GameVersion saveGetGameVersion(uint64_t titleid)
 {
 	switch (titleid)
 	{
-		case 0x0004000000170C00: ///< Pokémon Red (JPN) (JP)
-		case 0x0004000000171000: ///< Pokémon Red (FREE) (EN)
-		case 0x0004000000171300: ///< Pokémon Red (EUR) (DE)
-		case 0x0004000000171600: ///< Pokémon Red (EUR) (FR) ??
-		case 0x0004000000171900: ///< Pokémon Red (EUR) (ES)
-		case 0x0004000000171C00: ///< Pokémon Red (EUR) (IT) ??
+		case 0x0004000000170C00: ///< PokÃ©mon Red (JPN) (JP)
+		case 0x0004000000171000: ///< PokÃ©mon Red (FREE) (EN)
+		case 0x0004000000171300: ///< PokÃ©mon Red (EUR) (DE)
+		case 0x0004000000171600: ///< PokÃ©mon Red (EUR) (FR)
+		case 0x0004000000171900: ///< PokÃ©mon Red (EUR) (ES)
+		case 0x0004000000171C00: ///< PokÃ©mon Red (EUR) (IT)
 			return POKEMON_RED;
-		case 0x0004000000170D00: ///< Pokémon Green (JPN) (JP)
+		case 0x0004000000170D00: ///< PokÃ©mon Green (JPN) (JP)
 			return POKEMON_GREEN;
-		case 0x0004000000170E00: ///< Pokémon Blue? (JPN) (JP) ??
-		case 0x0004000000171100: ///< Pokémon Blue (FREE) (EN)
-		case 0x0004000000171400: ///< Pokémon Blue (EUR) (DE)
-		case 0x0004000000171700: ///< Pokémon Blue (EUR) (FR)
-		case 0x0004000000171A00: ///< Pokémon Blue (EUR) (ES)
-		case 0x0004000000171D00: ///< Pokémon Blue (EUR) (IT) ??
+		case 0x0004000000170E00: ///< PokÃ©mon Blue (JPN) (JP)
+		case 0x0004000000171100: ///< PokÃ©mon Blue (FREE) (EN)
+		case 0x0004000000171400: ///< PokÃ©mon Blue (EUR) (DE)
+		case 0x0004000000171700: ///< PokÃ©mon Blue (EUR) (FR)
+		case 0x0004000000171A00: ///< PokÃ©mon Blue (EUR) (ES)
+		case 0x0004000000171D00: ///< PokÃ©mon Blue (EUR) (IT)
 			return POKEMON_BLUE;
-		case 0x0004000000170F00: ///< Pokémon Yellow (JPN) (JP)
-		case 0x0004000000171500: ///< Pokémon Yellow (EUR) (DE)
-		case 0x0004000000171200: ///< Pokémon Yellow (FREE) (EN)
-		case 0x0004000000171800: ///< Pokémon Yellow (EUR) (FR)
-		case 0x0004000000171B00: ///< Pokémon Yellow (EUR) (ES)
-		case 0x0004000000171E00: ///< Pokémon Yellow (EUR) (IT)
+		case 0x0004000000170F00: ///< PokÃ©mon Yellow (JPN) (JP)
+		case 0x0004000000171500: ///< PokÃ©mon Yellow (EUR) (DE)
+		case 0x0004000000171200: ///< PokÃ©mon Yellow (FREE) (EN)
+		case 0x0004000000171800: ///< PokÃ©mon Yellow (EUR) (FR)
+		case 0x0004000000171B00: ///< PokÃ©mon Yellow (EUR) (ES)
+		case 0x0004000000171E00: ///< PokÃ©mon Yellow (EUR) (IT)
 			return POKEMON_YELLOW;
+		case 0x0004000000172300: ///< PokÃ©mon Gold (JPN) (JP)
+		case 0x0004000000172600: ///< PokÃ©mon Gold (FREE) (EN)
+		case 0x0004000000172900: ///< PokÃ©mon Gold (EUR) (DE)
+		case 0x0004000000172C00: ///< PokÃ©mon Gold (EUR) (FR)
+		case 0x0004000000172F00: ///< PokÃ©mon Gold (EUR) (ES)
+		case 0x0004000000173200: ///< PokÃ©mon Gold (EUR) (IT)
+			return POKEMON_GOLD;
+		case 0x0004000000172400: ///< PokÃ©mon Silver (JPN) (JP)
+		case 0x0004000000172700: ///< PokÃ©mon Silver (FREE) (EN)
+		case 0x0004000000172A00: ///< PokÃ©mon Silver (EUR) (DE)
+		case 0x0004000000172D00: ///< PokÃ©mon Silver (EUR) (FR)
+		case 0x0004000000173000: ///< PokÃ©mon Silver (EUR) (ES)
+		case 0x0004000000173300: ///< PokÃ©mon Silver (EUR) (IT)
+			return POKEMON_SILVER;
+		case 0x0004000000172500: ///< PokÃ©mon Crystal (JPN) (JP)
+		case 0x0004000000172800: ///< PokÃ©mon Crystal (FREE) (EN)
+		case 0x0004000000172B00: ///< PokÃ©mon Crystal (EUR) (DE)
+		case 0x0004000000172E00: ///< PokÃ©mon Crystal (EUR) (FR)
+		case 0x0004000000173100: ///< PokÃ©mon Crystal (EUR) (ES)
+		case 0x0004000000173400: ///< PokÃ©mon Crystal (EUR) (IT)
+			return POKEMON_CRYSTAL;
 		default:
 			return NOT_POKEMON;
 	}
@@ -129,30 +181,48 @@ SAV_GameLang saveGetGameLang(uint64_t titleid)
 {
 	switch (titleid)
 	{
-		case 0x0004000000170C00: ///< Pokémon Red (JPN) (JP)
-		case 0x0004000000170D00: ///< Pokémon Green (JPN) (JP)
-		case 0x0004000000170E00: ///< Pokémon Blue? (JPN) (JP) ??
-		case 0x0004000000170F00: ///< Pokémon Yellow (JPN) (JP)
+		case 0x0004000000170C00: ///< PokÃ©mon Red (JPN) (JP)
+		case 0x0004000000170D00: ///< PokÃ©mon Green (JPN) (JP)
+		case 0x0004000000170E00: ///< PokÃ©mon Blue (JPN) (JP)
+		case 0x0004000000170F00: ///< PokÃ©mon Yellow (JPN) (JP)
+		case 0x0004000000172300: ///< PokÃ©mon Gold (JPN) (JP)
+		case 0x0004000000172400: ///< PokÃ©mon Silver (JPN) (JP)
+		case 0x0004000000172500: ///< PokÃ©mon Crystal (JPN) (JP)
 			return POKEMON_JP;
-		case 0x0004000000171000: ///< Pokémon Red (FREE) (EN)
-		case 0x0004000000171100: ///< Pokémon Blue (FREE) (EN)
-		case 0x0004000000171200: ///< Pokémon Yellow (FREE) (EN)
+		case 0x0004000000171000: ///< PokÃ©mon Red (FREE) (EN)
+		case 0x0004000000171100: ///< PokÃ©mon Blue (FREE) (EN)
+		case 0x0004000000171200: ///< PokÃ©mon Yellow (FREE) (EN)
+		case 0x0004000000172600: ///< PokÃ©mon Gold (FREE) (EN)
+		case 0x0004000000172700: ///< PokÃ©mon Silver (FREE) (EN)
+		case 0x0004000000172800: ///< PokÃ©mon Crystal (FREE) (EN)
 			return POKEMON_EN;
-		case 0x0004000000171600: ///< Pokémon Red (EUR) (FR) ??
-		case 0x0004000000171700: ///< Pokémon Blue (EUR) (FR)
-		case 0x0004000000171800: ///< Pokémon Yellow (EUR) (FR)
+		case 0x0004000000171600: ///< PokÃ©mon Red (EUR) (FR)
+		case 0x0004000000171700: ///< PokÃ©mon Blue (EUR) (FR)
+		case 0x0004000000171800: ///< PokÃ©mon Yellow (EUR) (FR)
+		case 0x0004000000172C00: ///< PokÃ©mon Gold (EUR) (FR)
+		case 0x0004000000172D00: ///< PokÃ©mon Silver (EUR) (FR)
+		case 0x0004000000172E00: ///< PokÃ©mon Crystal (EUR) (FR)
 			return POKEMON_FR;
-		case 0x0004000000171300: ///< Pokémon Red (EUR) (DE)
-		case 0x0004000000171400: ///< Pokémon Blue (EUR) (DE)
-		case 0x0004000000171500: ///< Pokémon Yellow (EUR) (DE)
+		case 0x0004000000171300: ///< PokÃ©mon Red (EUR) (DE)
+		case 0x0004000000171400: ///< PokÃ©mon Blue (EUR) (DE)
+		case 0x0004000000171500: ///< PokÃ©mon Yellow (EUR) (DE)
+		case 0x0004000000172900: ///< PokÃ©mon Gold (EUR) (DE)
+		case 0x0004000000172A00: ///< PokÃ©mon Silver (EUR) (DE)
+		case 0x0004000000172B00: ///< PokÃ©mon Crystal (EUR) (DE)
 			return POKEMON_DE;
-		case 0x0004000000171C00: ///< Pokémon Red (EUR) (IT) ??
-		case 0x0004000000171D00: ///< Pokémon Blue (EUR) (IT) ??
-		case 0x0004000000171E00: ///< Pokémon Yellow (EUR) (IT)
+		case 0x0004000000171C00: ///< PokÃ©mon Red (EUR) (IT)
+		case 0x0004000000171D00: ///< PokÃ©mon Blue (EUR) (IT)
+		case 0x0004000000171E00: ///< PokÃ©mon Yellow (EUR) (IT)
+		case 0x0004000000173200: ///< PokÃ©mon Gold (EUR) (IT)
+		case 0x0004000000173300: ///< PokÃ©mon Silver (EUR) (IT)
+		case 0x0004000000173400: ///< PokÃ©mon Crystal (EUR) (IT)
 			return POKEMON_IT;
-		case 0x0004000000171B00: ///< Pokémon Yellow (EUR) (ES)
-		case 0x0004000000171900: ///< Pokémon Red (EUR) (ES)
-		case 0x0004000000171A00: ///< Pokémon Blue (EUR) (ES)
+		case 0x0004000000171B00: ///< PokÃ©mon Yellow (EUR) (ES)
+		case 0x0004000000171900: ///< PokÃ©mon Red (EUR) (ES)
+		case 0x0004000000171A00: ///< PokÃ©mon Blue (EUR) (ES)
+		case 0x0004000000172F00: ///< PokÃ©mon Gold (EUR) (ES)
+		case 0x0004000000173000: ///< PokÃ©mon Silver (EUR) (ES)
+		case 0x0004000000173100: ///< PokÃ©mon Crystal (EUR) (ES)
 			return POKEMON_ES;
 		default:
 			return NOT_POKEMON;
@@ -160,110 +230,201 @@ SAV_GameLang saveGetGameLang(uint64_t titleid)
 }
 
 /**
- * @brief Reads a Pokémon from the savedata buffer.
+ * @brief Reads a PokÃ©mon from the savedata buffer.
  * @param[in] save The savedata buffer to the list offset.
- * @param[out] pkm The Pokémon.
+ * @param[out] pkm The PokÃ©mon.
  * @param index The index in the list.
- * @param sizePkm The size of a Pokémon struct (pk1).
+ * @param sizePkm The size of a PokÃ©mon struct (0x20 Gen II, 0x21 Gen I / Bank, 0x2C Party).
  * @param sizeName The size of a name.
  * @param capacity The capacity of the list.
  */
 static void saveExtractPokemon(const uint8_t* save, SAV_Pokemon* pkm, uint8_t index, uint8_t sizePkm, uint8_t sizeName, uint8_t capacity)
 {
 	const uint8_t* pkmbuf;
+	memset(pkm, 0, sizeof(SAV_Pokemon));
 
-	// Count (1) + Species.index (index)
-	pkmbuf = save + 1 + index;
-
-	// Extra attributes
-	pkm->species = pkmbuf[0x00];
-	pkm->nationalDex = pokedexGetNational(pkm->species);
-
-	// Count (1) + Species (capacity+1) + Pokémon.index (index*sizePkm)
-	pkmbuf = save + 2 + capacity + index * sizePkm;
-
-	// Shared attributes
-	pkm->speciesIndex = pkmbuf[0x00];
-	pkm->currentHP = pkmbuf[0x01] << 8 | pkmbuf[0x02];
-	pkm->currentLevel = pkmbuf[0x03];
-	pkm->status = pkmbuf[0x04];
-	pkm->types[0] = pkmbuf[0x05];
-	pkm->types[1] = pkmbuf[0x06];
-	pkm->catchRate = pkmbuf[0x07];
-	pkm->moves[0] = pkmbuf[0x08];
-	pkm->moves[1] = pkmbuf[0x09];
-	pkm->moves[2] = pkmbuf[0x0A];
-	pkm->moves[3] = pkmbuf[0x0B];
-	pkm->originalTID = pkmbuf[0x0C] << 8 | pkmbuf[0x0D];
-	pkm->experience = pkmbuf[0x0E] << 16 | pkmbuf[0x0F] << 8 | pkmbuf[0x10];
-	pkm->EVs[0] = pkmbuf[0x11] << 8 | pkmbuf[0x12];
-	pkm->EVs[1] = pkmbuf[0x13] << 8 | pkmbuf[0x14];
-	pkm->EVs[2] = pkmbuf[0x15] << 8 | pkmbuf[0x16];
-	pkm->EVs[3] = pkmbuf[0x17] << 8 | pkmbuf[0x18];
-	pkm->EVs[4] = pkmbuf[0x19] << 8 | pkmbuf[0x1A];
-	pkm->IVs[1] = pkmbuf[0x1B] >> 4;
-	pkm->IVs[2] = pkmbuf[0x1B] & 0x0F;
-	pkm->IVs[3] = pkmbuf[0x1C] >> 4;
-	pkm->IVs[4] = pkmbuf[0x1C] & 0x0F;
-	pkm->PPUps[0] = pkmbuf[0x1D] >> 6;
-	pkm->PPUps[1] = pkmbuf[0x1E] >> 6;
-	pkm->PPUps[2] = pkmbuf[0x1F] >> 6;
-	pkm->PPUps[3] = pkmbuf[0x20] >> 6;
-	pkm->PPs[0] = pkmbuf[0x1D] & 0x3F;
-	pkm->PPs[1] = pkmbuf[0x1E] & 0x3F;
-	pkm->PPs[2] = pkmbuf[0x1F] & 0x3F;
-	pkm->PPs[3] = pkmbuf[0x20] & 0x3F;
-
-	pkm->IVs[STAT_HP] = ((pkm->IVs[STAT_ATK] & 0x1) << 3) | ((pkm->IVs[STAT_DEF] & 0x1) << 2) | ((pkm->IVs[STAT_SPE] & 0x1) << 1) |	((pkm->IVs[STAT_SPC] & 0x1) << 0);
-
-	if (sizePkm == 0x2C)
+	if (sizePkm == 0x20)
 	{
-		// Party attributes
-		pkm->level = pkmbuf[0x21];
-		pkm->maxHP = pkmbuf[0x22] << 8 | pkmbuf[0x23];
-		pkm->ATK = pkmbuf[0x24] << 8 | pkmbuf[0x25];
-		pkm->DEF = pkmbuf[0x26] << 8 | pkmbuf[0x27];
-		pkm->SPE = pkmbuf[0x28] << 8 | pkmbuf[0x29];
-		pkm->SPC = pkmbuf[0x2A] << 8 | pkmbuf[0x2B];
-	}
-	else
-	{
-		const PersonalInfo* pInfo = Personal(pkm->nationalDex);
+		// Gen II Box PokÃ©mon (32 bytes)
+		uint8_t listSpecies = (save + 1 + index)[0];
+		pkmbuf = save + 2 + capacity + index * sizePkm;
 
-		// Compute the level? No!
+		if (listSpecies == 0x00 || listSpecies == 0xFF || (listSpecies > PKM_COUNT && listSpecies != 0xFD))
+		{
+			pkm->species = 0xFF;
+			pkm->speciesIndex = 0xFF;
+			pkm->nationalDex = 0;
+			pkm->isEgg = false;
+			pkm->moved = false;
+			return;
+		}
+
+		pkm->isEgg = (listSpecies == 0xFD);
+		pkm->nationalDex = pkmbuf[0x00];
+		if (pkm->nationalDex == 0 || pkm->nationalDex > PKM_COUNT)
+		{
+			pkm->nationalDex = (listSpecies <= PKM_COUNT ? listSpecies : 0);
+		}
+		pkm->species = pokedexGetIndex(pkm->nationalDex);
+		pkm->speciesIndex = pkm->species;
+
+		pkm->heldItem = pkmbuf[0x01];
+		pkm->moves[0] = pkmbuf[0x02];
+		pkm->moves[1] = pkmbuf[0x03];
+		pkm->moves[2] = pkmbuf[0x04];
+		pkm->moves[3] = pkmbuf[0x05];
+		pkm->originalTID = pkmbuf[0x06] << 8 | pkmbuf[0x07];
+		pkm->experience = pkmbuf[0x08] << 16 | pkmbuf[0x09] << 8 | pkmbuf[0x0A];
+		pkm->EVs[0] = pkmbuf[0x0B] << 8 | pkmbuf[0x0C];
+		pkm->EVs[1] = pkmbuf[0x0D] << 8 | pkmbuf[0x0E];
+		pkm->EVs[2] = pkmbuf[0x0F] << 8 | pkmbuf[0x10];
+		pkm->EVs[3] = pkmbuf[0x11] << 8 | pkmbuf[0x12];
+		pkm->EVs[4] = pkmbuf[0x13] << 8 | pkmbuf[0x14];
+		pkm->IVs[1] = pkmbuf[0x15] >> 4;
+		pkm->IVs[2] = pkmbuf[0x15] & 0x0F;
+		pkm->IVs[3] = pkmbuf[0x16] >> 4;
+		pkm->IVs[4] = pkmbuf[0x16] & 0x0F;
+		pkm->PPUps[0] = pkmbuf[0x17] >> 6;
+		pkm->PPUps[1] = pkmbuf[0x18] >> 6;
+		pkm->PPUps[2] = pkmbuf[0x19] >> 6;
+		pkm->PPUps[3] = pkmbuf[0x1A] >> 6;
+		pkm->PPs[0] = pkmbuf[0x17] & 0x3F;
+		pkm->PPs[1] = pkmbuf[0x18] & 0x3F;
+		pkm->PPs[2] = pkmbuf[0x19] & 0x3F;
+		pkm->PPs[3] = pkmbuf[0x1A] & 0x3F;
+		pkm->friendship = pkmbuf[0x1B];
+		pkm->pokerus = pkmbuf[0x1C];
+		pkm->caughtData = pkmbuf[0x1D] << 8 | pkmbuf[0x1E];
+		pkm->currentLevel = pkmbuf[0x1F];
 		pkm->level = pkm->currentLevel;
+		pkm->status = STATUS_OK;
+
+		pkm->IVs[STAT_HP] = ((pkm->IVs[STAT_ATK] & 0x1) << 3) | ((pkm->IVs[STAT_DEF] & 0x1) << 2) | ((pkm->IVs[STAT_SPE] & 0x1) << 1) | ((pkm->IVs[STAT_SPC] & 0x1) << 0);
+
+		const PersonalInfo* pInfo = Personal(pkm->nationalDex);
+		pkm->types[0] = pInfo->type1;
+		pkm->types[1] = pInfo->type2;
+		pkm->catchRate = (pkm->heldItem != 0 ? pkm->heldItem : pInfo->catchRate);
+
 		pkm->maxHP = ((((pInfo->HP + pkm->IVs[STAT_HP]) * 2 + sqrt(pkm->EVs[STAT_HP]) / 4) * pkm->level) / 100) + pkm->level + 10;
+		pkm->currentHP = pkm->maxHP;
 		pkm->ATK = ((((pInfo->ATK + pkm->IVs[STAT_ATK]) * 2 + sqrt(pkm->EVs[STAT_ATK]) / 4) * pkm->level) / 100) + 5;
 		pkm->DEF = ((((pInfo->DEF + pkm->IVs[STAT_DEF]) * 2 + sqrt(pkm->EVs[STAT_DEF]) / 4) * pkm->level) / 100) + 5;
 		pkm->SPE = ((((pInfo->SPE + pkm->IVs[STAT_SPE]) * 2 + sqrt(pkm->EVs[STAT_SPE]) / 4) * pkm->level) / 100) + 5;
 		pkm->SPC = ((((pInfo->SPC + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+		pkm->SPD = ((((pInfo->SPD + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+	}
+	else
+	{
+		// Gen I / Bank Box PokÃ©mon (33 bytes) or Party (44 bytes)
+		pkmbuf = save + 1 + index;
+
+		pkm->species = pkmbuf[0x00];
+		pkm->nationalDex = pokedexGetNational(pkm->species);
+		pkm->isEgg = false;
+
+		if (pkm->species == 0x00 || pkm->species == 0xFF || pkm->nationalDex == 0)
+		{
+			pkm->species = 0xFF;
+			pkm->speciesIndex = 0xFF;
+			pkm->nationalDex = 0;
+			return;
+		}
+
+		pkmbuf = save + 2 + capacity + index * sizePkm;
+
+		pkm->speciesIndex = pkmbuf[0x00];
+		pkm->currentHP = pkmbuf[0x01] << 8 | pkmbuf[0x02];
+		pkm->currentLevel = pkmbuf[0x03];
+		pkm->status = pkmbuf[0x04];
+		pkm->types[0] = pkmbuf[0x05];
+		pkm->types[1] = pkmbuf[0x06];
+		pkm->catchRate = pkmbuf[0x07];
+		pkm->moves[0] = pkmbuf[0x08];
+		pkm->moves[1] = pkmbuf[0x09];
+		pkm->moves[2] = pkmbuf[0x0A];
+		pkm->moves[3] = pkmbuf[0x0B];
+		pkm->originalTID = pkmbuf[0x0C] << 8 | pkmbuf[0x0D];
+		pkm->experience = pkmbuf[0x0E] << 16 | pkmbuf[0x0F] << 8 | pkmbuf[0x10];
+		pkm->EVs[0] = pkmbuf[0x11] << 8 | pkmbuf[0x12];
+		pkm->EVs[1] = pkmbuf[0x13] << 8 | pkmbuf[0x14];
+		pkm->EVs[2] = pkmbuf[0x15] << 8 | pkmbuf[0x16];
+		pkm->EVs[3] = pkmbuf[0x17] << 8 | pkmbuf[0x18];
+		pkm->EVs[4] = pkmbuf[0x19] << 8 | pkmbuf[0x1A];
+		pkm->IVs[1] = pkmbuf[0x1B] >> 4;
+		pkm->IVs[2] = pkmbuf[0x1B] & 0x0F;
+		pkm->IVs[3] = pkmbuf[0x1C] >> 4;
+		pkm->IVs[4] = pkmbuf[0x1C] & 0x0F;
+		pkm->PPUps[0] = pkmbuf[0x1D] >> 6;
+		pkm->PPUps[1] = pkmbuf[0x1E] >> 6;
+		pkm->PPUps[2] = pkmbuf[0x1F] >> 6;
+		pkm->PPUps[3] = pkmbuf[0x20] >> 6;
+		pkm->PPs[0] = pkmbuf[0x1D] & 0x3F;
+		pkm->PPs[1] = pkmbuf[0x1E] & 0x3F;
+		pkm->PPs[2] = pkmbuf[0x1F] & 0x3F;
+		pkm->PPs[3] = pkmbuf[0x20] & 0x3F;
+
+		pkm->IVs[STAT_HP] = ((pkm->IVs[STAT_ATK] & 0x1) << 3) | ((pkm->IVs[STAT_DEF] & 0x1) << 2) | ((pkm->IVs[STAT_SPE] & 0x1) << 1) | ((pkm->IVs[STAT_SPC] & 0x1) << 0);
+
+		const PersonalInfo* pInfo = Personal(pkm->nationalDex);
+		pkm->heldItem = 0;
+		pkm->friendship = 70;
+		pkm->pokerus = 0;
+		pkm->caughtData = 0;
+
+		if (sizePkm == 0x2C)
+		{
+			pkm->level = pkmbuf[0x21];
+			pkm->maxHP = pkmbuf[0x22] << 8 | pkmbuf[0x23];
+			pkm->ATK = pkmbuf[0x24] << 8 | pkmbuf[0x25];
+			pkm->DEF = pkmbuf[0x26] << 8 | pkmbuf[0x27];
+			pkm->SPE = pkmbuf[0x28] << 8 | pkmbuf[0x29];
+			pkm->SPC = pkmbuf[0x2A] << 8 | pkmbuf[0x2B];
+			pkm->SPD = ((((pInfo->SPD + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+		}
+		else
+		{
+			pkm->level = pkm->currentLevel;
+			pkm->maxHP = ((((pInfo->HP + pkm->IVs[STAT_HP]) * 2 + sqrt(pkm->EVs[STAT_HP]) / 4) * pkm->level) / 100) + pkm->level + 10;
+			pkm->ATK = ((((pInfo->ATK + pkm->IVs[STAT_ATK]) * 2 + sqrt(pkm->EVs[STAT_ATK]) / 4) * pkm->level) / 100) + 5;
+			pkm->DEF = ((((pInfo->DEF + pkm->IVs[STAT_DEF]) * 2 + sqrt(pkm->EVs[STAT_DEF]) / 4) * pkm->level) / 100) + 5;
+			pkm->SPE = ((((pInfo->SPE + pkm->IVs[STAT_SPE]) * 2 + sqrt(pkm->EVs[STAT_SPE]) / 4) * pkm->level) / 100) + 5;
+			pkm->SPC = ((((pInfo->SPC + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+			pkm->SPD = ((((pInfo->SPD + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+		}
+
+		if (pkm->nationalDex > SPECIES_MEW)
+		{
+			pkm->types[0] = pInfo->type1;
+			pkm->types[1] = pInfo->type2;
+			if (pkm->currentHP == 0 || pkm->currentHP > pkm->maxHP)
+				pkm->currentHP = pkm->maxHP;
+		}
 	}
 
-	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (index) * sizeName;
 
-	// Extra attributes
 	for (uint8_t i = 0; i < sizeName; i++)
 		pkm->nameOT[i] = pkmbuf[i];
-	pkm->nameOT[sizeName-1] = 0x50;
+	if (sizeName > 0 && sizeName <= sizeof(pkm->nameOT)) pkm->nameOT[sizeName-1] = 0x50;
 
-	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
 
-	// Extra attributes
 	for (uint8_t i = 0; i < sizeName; i++)
 		pkm->nameNK[i] = pkmbuf[i];
-	pkm->nameNK[sizeName-1] = 0x50;
+	if (sizeName > 0 && sizeName <= sizeof(pkm->nameNK)) pkm->nameNK[sizeName-1] = 0x50;
 
 	pkm->moved = false;
 }
 
 /**
- * @brief Writes a Pokémon to the savedata buffer.
+ * @brief Writes a PokÃ©mon to the savedata buffer.
  * @param[in/out] save The savedata buffer to the list offset.
- * @param[in] pkm The Pokémon.
+ * @param[in] pkm The PokÃ©mon.
  * @param index The index in the list.
- * @param sizePkm The size of a Pokémon struct (pk1).
+ * @param sizePkm The size of a PokÃ©mon struct (0x20 Gen II, 0x21 Gen I / Bank, 0x2C Party).
  * @param sizeName The size of a name.
  * @param capacity The capacity of the list.
  */
@@ -273,115 +434,189 @@ static void saveInjectPokemon(uint8_t* save, const SAV_Pokemon* pkm, uint8_t ind
 
 	uint8_t* pkmbuf;
 
-	// Count (1) + Species.index (index)
-	pkmbuf = save + 1 + index;
-
-	// Extra attributes
-	pkmbuf[0x00] = pkm->species;
-
-	// Count (1) + Species (capacity+1) + Pokémon.index (index*sizePkm)
-	pkmbuf = save + 2 + capacity + index * sizePkm;
-
-	// Shared attributes
-	pkmbuf[0x00] = pkm->speciesIndex;
-	pkmbuf[0x01] = pkm->currentHP >> 8;
-	pkmbuf[0x02] = pkm->currentHP & 0xFF;
-	pkmbuf[0x03] = pkm->currentLevel;
-	pkmbuf[0x04] = pkm->status;
-	pkmbuf[0x05] = pkm->types[0];
-	pkmbuf[0x06] = pkm->types[1];
-	pkmbuf[0x07] = pkm->catchRate;
-	pkmbuf[0x08] = pkm->moves[0];
-	pkmbuf[0x09] = pkm->moves[1];
-	pkmbuf[0x0A] = pkm->moves[2];
-	pkmbuf[0x0B] = pkm->moves[3];
-	pkmbuf[0x0C] = pkm->originalTID >> 8;
-	pkmbuf[0x0D] = pkm->originalTID & 0xFF;
-	pkmbuf[0x0E] = pkm->experience >> 16 & 0xFF;
-	pkmbuf[0x0F] = pkm->experience >> 8 & 0xFF;
-	pkmbuf[0x10] = pkm->experience & 0xFF;
-	pkmbuf[0x11] = pkm->EVs[0] >> 8;
-	pkmbuf[0x12] = pkm->EVs[0] & 0xFF;
-	pkmbuf[0x13] = pkm->EVs[1] >> 8;
-	pkmbuf[0x14] = pkm->EVs[1] & 0xFF;
-	pkmbuf[0x15] = pkm->EVs[2] >> 8;
-	pkmbuf[0x16] = pkm->EVs[2] & 0xFF;
-	pkmbuf[0x17] = pkm->EVs[3] >> 8;
-	pkmbuf[0x18] = pkm->EVs[3] & 0xFF;
-	pkmbuf[0x19] = pkm->EVs[4] >> 8;
-	pkmbuf[0x1A] = pkm->EVs[4] & 0xFF;
-	pkmbuf[0x1B] = (pkm->IVs[1] & 0x0F) << 4 | (pkm->IVs[2] & 0x0F);
-	pkmbuf[0x1C] = (pkm->IVs[3] & 0x0F) << 4 | (pkm->IVs[4] & 0x0F);
-	pkmbuf[0x1D] = (pkm->PPUps[0] & 0x3) << 6 | (pkm->PPs[0] & 0x3F);
-	pkmbuf[0x1E] = (pkm->PPUps[1] & 0x3) << 6 | (pkm->PPs[1] & 0x3F);
-	pkmbuf[0x1F] = (pkm->PPUps[2] & 0x3) << 6 | (pkm->PPs[2] & 0x3F);
-	pkmbuf[0x20] = (pkm->PPUps[3] & 0x3) << 6 | (pkm->PPs[3] & 0x3F);
-
-	if (sizePkm == 0x2C)
+	if (sizePkm == 0x20)
 	{
-		// Party attributes
-		pkmbuf[0x21] = pkm->level;
-		pkmbuf[0x22] = pkm->maxHP >> 8;
-		pkmbuf[0x23] = pkm->maxHP & 0xFF;
-		pkmbuf[0x24] = pkm->ATK >> 8;
-		pkmbuf[0x25] = pkm->ATK & 0xFF;
-		pkmbuf[0x26] = pkm->DEF >> 8;
-		pkmbuf[0x27] = pkm->DEF & 0xFF;
-		pkmbuf[0x28] = pkm->SPE >> 8;
-		pkmbuf[0x29] = pkm->SPE & 0xFF;
-		pkmbuf[0x2A] = pkm->SPC >> 8;
-		pkmbuf[0x2B] = pkm->SPC & 0xFF;
+		// Gen II Box PokÃ©mon (32 bytes)
+		pkmbuf = save + 1 + index;
+		if (saveIsPkmEmpty(pkm))
+		{
+			pkmbuf[0x00] = 0xFF;
+			pkmbuf = save + 2 + capacity + index * sizePkm;
+			memset(pkmbuf, 0, sizePkm);
+			return;
+		}
+
+		pkmbuf[0x00] = pkm->isEgg ? 0xFD : pkm->nationalDex;
+
+		pkmbuf = save + 2 + capacity + index * sizePkm;
+		pkmbuf[0x00] = pkm->nationalDex;
+		pkmbuf[0x01] = pkm->heldItem;
+		pkmbuf[0x02] = pkm->moves[0];
+		pkmbuf[0x03] = pkm->moves[1];
+		pkmbuf[0x04] = pkm->moves[2];
+		pkmbuf[0x05] = pkm->moves[3];
+		pkmbuf[0x06] = pkm->originalTID >> 8;
+		pkmbuf[0x07] = pkm->originalTID & 0xFF;
+		pkmbuf[0x08] = pkm->experience >> 16 & 0xFF;
+		pkmbuf[0x09] = pkm->experience >> 8 & 0xFF;
+		pkmbuf[0x0A] = pkm->experience & 0xFF;
+		pkmbuf[0x0B] = pkm->EVs[0] >> 8;
+		pkmbuf[0x0C] = pkm->EVs[0] & 0xFF;
+		pkmbuf[0x0D] = pkm->EVs[1] >> 8;
+		pkmbuf[0x0E] = pkm->EVs[1] & 0xFF;
+		pkmbuf[0x0F] = pkm->EVs[2] >> 8;
+		pkmbuf[0x10] = pkm->EVs[2] & 0xFF;
+		pkmbuf[0x11] = pkm->EVs[3] >> 8;
+		pkmbuf[0x12] = pkm->EVs[3] & 0xFF;
+		pkmbuf[0x13] = pkm->EVs[4] >> 8;
+		pkmbuf[0x14] = pkm->EVs[4] & 0xFF;
+		pkmbuf[0x15] = (pkm->IVs[1] & 0x0F) << 4 | (pkm->IVs[2] & 0x0F);
+		pkmbuf[0x16] = (pkm->IVs[3] & 0x0F) << 4 | (pkm->IVs[4] & 0x0F);
+		pkmbuf[0x17] = (pkm->PPUps[0] & 0x3) << 6 | (pkm->PPs[0] & 0x3F);
+		pkmbuf[0x18] = (pkm->PPUps[1] & 0x3) << 6 | (pkm->PPs[1] & 0x3F);
+		pkmbuf[0x19] = (pkm->PPUps[2] & 0x3) << 6 | (pkm->PPs[2] & 0x3F);
+		pkmbuf[0x1A] = (pkm->PPUps[3] & 0x3) << 6 | (pkm->PPs[3] & 0x3F);
+		pkmbuf[0x1B] = (pkm->friendship ? pkm->friendship : 70);
+		pkmbuf[0x1C] = pkm->pokerus;
+		pkmbuf[0x1D] = pkm->caughtData >> 8;
+		pkmbuf[0x1E] = pkm->caughtData & 0xFF;
+		pkmbuf[0x1F] = pkm->currentLevel;
+	}
+	else
+	{
+		// Gen I / Bank Box PokÃ©mon (33 bytes) or Party (44 bytes)
+		pkmbuf = save + 1 + index;
+		if (saveIsPkmEmpty(pkm))
+		{
+			pkmbuf[0x00] = 0xFF;
+			pkmbuf = save + 2 + capacity + index * sizePkm;
+			memset(pkmbuf, 0, sizePkm);
+			return;
+		}
+
+		uint8_t idx = pokedexGetIndex(pkm->nationalDex);
+		pkmbuf[0x00] = idx;
+
+		pkmbuf = save + 2 + capacity + index * sizePkm;
+
+		uint8_t type0 = pkm->types[0];
+		uint8_t type1 = pkm->types[1];
+		if (vgame <= POKEMON_YELLOW && (type0 == TYPE_STEEL || type0 == TYPE_DARK || type1 == TYPE_STEEL || type1 == TYPE_DARK))
+		{
+			// Convert Magnemite/Magneton Steel secondary type back to Electric if transferred to Gen I
+			if (pkm->nationalDex == SPECIES_MAGNEMITE || pkm->nationalDex == SPECIES_MAGNETON)
+			{
+				type0 = TYPE_ELECTRIC;
+				type1 = TYPE_ELECTRIC;
+			}
+		}
+
+		pkmbuf[0x00] = idx;
+		pkmbuf[0x01] = pkm->currentHP >> 8;
+		pkmbuf[0x02] = pkm->currentHP & 0xFF;
+		pkmbuf[0x03] = pkm->currentLevel;
+		pkmbuf[0x04] = pkm->status;
+		pkmbuf[0x05] = type0;
+		pkmbuf[0x06] = type1;
+		pkmbuf[0x07] = (pkm->catchRate ? pkm->catchRate : Personal(pkm->nationalDex)->catchRate);
+		pkmbuf[0x08] = pkm->moves[0];
+		pkmbuf[0x09] = pkm->moves[1];
+		pkmbuf[0x0A] = pkm->moves[2];
+		pkmbuf[0x0B] = pkm->moves[3];
+		pkmbuf[0x0C] = pkm->originalTID >> 8;
+		pkmbuf[0x0D] = pkm->originalTID & 0xFF;
+		pkmbuf[0x0E] = pkm->experience >> 16 & 0xFF;
+		pkmbuf[0x0F] = pkm->experience >> 8 & 0xFF;
+		pkmbuf[0x10] = pkm->experience & 0xFF;
+		pkmbuf[0x11] = pkm->EVs[0] >> 8;
+		pkmbuf[0x12] = pkm->EVs[0] & 0xFF;
+		pkmbuf[0x13] = pkm->EVs[1] >> 8;
+		pkmbuf[0x14] = pkm->EVs[1] & 0xFF;
+		pkmbuf[0x15] = pkm->EVs[2] >> 8;
+		pkmbuf[0x16] = pkm->EVs[2] & 0xFF;
+		pkmbuf[0x17] = pkm->EVs[3] >> 8;
+		pkmbuf[0x18] = pkm->EVs[3] & 0xFF;
+		pkmbuf[0x19] = pkm->EVs[4] >> 8;
+		pkmbuf[0x1A] = pkm->EVs[4] & 0xFF;
+		pkmbuf[0x1B] = (pkm->IVs[1] & 0x0F) << 4 | (pkm->IVs[2] & 0x0F);
+		pkmbuf[0x1C] = (pkm->IVs[3] & 0x0F) << 4 | (pkm->IVs[4] & 0x0F);
+		pkmbuf[0x1D] = (pkm->PPUps[0] & 0x3) << 6 | (pkm->PPs[0] & 0x3F);
+		pkmbuf[0x1E] = (pkm->PPUps[1] & 0x3) << 6 | (pkm->PPs[1] & 0x3F);
+		pkmbuf[0x1F] = (pkm->PPUps[2] & 0x3) << 6 | (pkm->PPs[2] & 0x3F);
+		pkmbuf[0x20] = (pkm->PPUps[3] & 0x3) << 6 | (pkm->PPs[3] & 0x3F);
+
+		if (sizePkm == 0x2C)
+		{
+			pkmbuf[0x21] = pkm->level;
+			pkmbuf[0x22] = pkm->maxHP >> 8;
+			pkmbuf[0x23] = pkm->maxHP & 0xFF;
+			pkmbuf[0x24] = pkm->ATK >> 8;
+			pkmbuf[0x25] = pkm->ATK & 0xFF;
+			pkmbuf[0x26] = pkm->DEF >> 8;
+			pkmbuf[0x27] = pkm->DEF & 0xFF;
+			pkmbuf[0x28] = pkm->SPE >> 8;
+			pkmbuf[0x29] = pkm->SPE & 0xFF;
+			pkmbuf[0x2A] = pkm->SPC >> 8;
+			pkmbuf[0x2B] = pkm->SPC & 0xFF;
+		}
 	}
 
-	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (index) * sizeName;
 
-	// Extra attributes
 	for (uint8_t i = 0; i < sizeName; i++)
 		pkmbuf[i] = pkm->nameOT[i];
-	pkmbuf[sizeName-1] = 0x50;
+	if (sizeName > 0) pkmbuf[sizeName-1] = 0x50;
 
-	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
 
-	// Extra attributes
 	for (uint8_t i = 0; i < sizeName; i++)
 		pkmbuf[i] = pkm->nameNK[i];
-	pkmbuf[sizeName-1] = 0x50;
+	if (sizeName > 0) pkmbuf[sizeName-1] = 0x50;
 }
 
 /**
  * @brief Reads the data from a save to a structure.
  * @param[in] save The savedata buffer.
- * @param[out] pkmList The Pokémon list to populate.
+ * @param[out] pkmList The PokÃ©mon list to populate.
  * @param listOffset The offset of the list.
- * @param sizePkm The size of a Pokémon struct (pk1).
+ * @param sizePkm The size of a PokÃ©mon struct (pk1).
  * @param sizeName The size of a name.
  * @param capacity The capacity of the list.
  */
-static void saveExtractPokemonList(const uint8_t* save, SAV_PokemonList* pkmList, SAV_PokemonListOffset listOffset, uint8_t sizePkm, uint8_t sizeName, uint8_t capacity)
+static void saveExtractPokemonList(const uint8_t* save, SAV_PokemonList* pkmList, uint32_t listOffset, uint8_t sizePkm, uint8_t sizeName, uint8_t capacity)
 {
 	pkmList->count = save[listOffset];
+	if (pkmList->count > capacity || save[listOffset + 1] == 0xFF || save[listOffset + 1] == 0x00)
+		pkmList->count = 0;
 	pkmList->sizePkm = sizePkm;
 	pkmList->sizeName = sizeName;
 	pkmList->capacity = capacity;
 
-	// printf("List %u/%u\n", pkmList->count, pkmList->capacity);
-
 	for (uint8_t i = 0; i < pkmList->capacity; i++)
-		saveExtractPokemon(save + listOffset, &pkmList->slots[i], i, pkmList->sizePkm, pkmList->sizeName, pkmList->capacity);
+	{
+		if (i >= pkmList->count)
+		{
+			memset(&pkmList->slots[i], 0, sizeof(SAV_Pokemon));
+			pkmList->slots[i].species = 0xFF;
+			pkmList->slots[i].speciesIndex = 0xFF;
+		}
+		else
+		{
+			saveExtractPokemon(save + listOffset, &pkmList->slots[i], i, pkmList->sizePkm, pkmList->sizeName, pkmList->capacity);
+		}
+	}
 }
 
 /**
  * @brief Writes the data from a structure to a save.
  * @param[in/out] save The savedata buffer.
- * @param[in] pkmList The Pokémon list to inject.
+ * @param[in] pkmList The PokÃ©mon list to inject.
  * @param listOffset The offset of the list.
  */
-static void saveInjectPokemonList(uint8_t* save, const SAV_PokemonList* pkmList, SAV_PokemonListOffset listOffset)
+static void saveInjectPokemonList(uint8_t* save, const SAV_PokemonList* pkmList, uint32_t listOffset)
 {
-	// printf("List %u/%u (%u)\n", pkmList->size, pkmList->count, pkmList->capacity);
-
 	save[listOffset] = pkmList->count;
 	save[listOffset+pkmList->count+1] = 0xFF;
 
@@ -389,77 +624,26 @@ static void saveInjectPokemonList(uint8_t* save, const SAV_PokemonList* pkmList,
 		saveInjectPokemon(save + listOffset, &pkmList->slots[i], i, pkmList->sizePkm, pkmList->sizeName, pkmList->capacity);
 }
 
-/**
- * @brief Reads an item from the savedata buffer.
- * @param[in] save The savedata buffer to the list offset.
- * @param[out] item The item.
- * @param index The index in the list.
- * @param capacity The capacity of the list.
- */
-static void saveExtractItem(const uint8_t* save, SAV_Item* item, uint8_t index, uint8_t capacity)
-{
-	const uint8_t* itembuf;
-
-	// Count (1) + Item.index (index*2)
-	itembuf = save + 1 + index * 2;
-
-	item->index = itembuf[0x00];
-	item->count = itembuf[0x01];
-}
-
-/**
- * @brief Writes an item to the savedata buffer.
- * @param[in/out] save The savedata buffer to the list offset.
- * @param[in] item The item.
- * @param index The index in the list.
- * @param capacity The capacity of the list.
- */
-static void saveInjectItem(uint8_t* save, const SAV_Item* item, uint8_t index, uint8_t capacity)
-{
-	uint8_t* itembuf;
-
-	// Count (1) + Item.index (index*2)
-	itembuf = save + 1 + index * 2;
-
-	itembuf[0x00] = item->index;
-	itembuf[0x01] = item->count;
-}
-
-/**
- * @brief Reads the data from a save to a structure.
- * @param[in] save The savedata buffer.
- * @param[out] itemList The item list to populate.
- * @param listOffset The offset of the list.
- */
-static void saveExtractItemList(const uint8_t* save, SAV_ItemList* itemList, SAV_ItemListOffset listOffset, uint8_t capacity)
-{
-	itemList->count = save[listOffset];
-	itemList->capacity = capacity;
-
-	// printf("List %u/%u\n", itemList->count, itemList->capacity);
-
-	for (uint8_t i = 0; i < itemList->capacity; i++)
-		saveExtractItem(save + listOffset, &itemList->slots[i], i, itemList->capacity);
-}
-
-/**
- * @brief Writes the data from a structure to a save.
- * @param[in/out] save The savedata buffer.
- * @param[in] itemList The item list to inject.
- * @param listOffset The offset of the list.
- */
-static void saveInjectItemList(uint8_t* save, const SAV_ItemList* itemList, SAV_ItemListOffset listOffset)
-{
-	save[listOffset] = itemList->count;
-	save[listOffset+2*itemList->count+1] = 0xFF;
-
-	for (uint8_t i = 0; i < itemList->capacity; i++)
-		saveInjectItem(save + listOffset, &itemList->slots[i], i, itemList->capacity);
-}
-
 uint8_t saveGetCurrentBox(const uint8_t* save)
 {
-	return (lgame == POKEMON_JP ? save[OFFSET_CURRENT_IDX_JSAV] : save[OFFSET_CURRENT_IDX_FSAV]) & 0x7F;
+	uint8_t maxBoxes;
+	uint8_t boxIdx;
+
+	if (vgame >= POKEMON_GOLD)
+	{
+		maxBoxes = (lgame == POKEMON_JP ? 9 : 14);
+		if (vgame == POKEMON_CRYSTAL)
+			boxIdx = save[lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_C_JSAV : OFFSET_CURRENT_IDX_C_FSAV] & 0x7F;
+		else
+			boxIdx = save[lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_GS_JSAV : OFFSET_CURRENT_IDX_GS_FSAV] & 0x7F;
+	}
+	else
+	{
+		maxBoxes = (lgame == POKEMON_JP ? 8 : 12);
+		boxIdx = (lgame == POKEMON_JP ? save[OFFSET_CURRENT_IDX_JSAV] : save[OFFSET_CURRENT_IDX_FSAV]) & 0x7F;
+	}
+
+	return (boxIdx < maxBoxes ? boxIdx : 0);
 }
 
 SAV_PokemonList* gameGetBox(uint8_t box)
@@ -483,10 +667,38 @@ SAV_Pokemon* saveGetPkm(uint8_t box, uint8_t slot, bool inBank)
 }
 
 /**
- * @brief Swaps two Pokémon.
- * @param[out] dst The Pokémon destination.
- * @param[in] src The Pokémon source.
- * @return Whether the Pokémon have been swapped.
+ * @brief Checks if a PokÃ©mon is compatible with the target destination.
+ */
+static bool canPlacePokemon(const SAV_Pokemon* pkm, bool inBank)
+{
+	if (saveIsPkmEmpty(pkm)) return true;
+
+	// Prevent moving Eggs out of Gen II PC boxes into Bank or Gen I
+	if (pkm->isEgg && (inBank || vgame <= POKEMON_YELLOW))
+		return false;
+
+	// Prevent moving Gen II species or Gen II moves or held items into a Gen I game box
+	if (!inBank && vgame <= POKEMON_YELLOW)
+	{
+		if (pkm->heldItem != 0)
+			return false;
+		if (pkm->nationalDex > SPECIES_MEW)
+			return false;
+		for (uint8_t i = 0; i < 4; i++)
+		{
+			if (pkm->moves[i] > 165)
+				return false;
+		}
+	}
+
+	return true;
+}
+
+/**
+ * @brief Swaps two PokÃ©mon.
+ * @param[out] dst The PokÃ©mon destination.
+ * @param[in] src The PokÃ©mon source.
+ * @return Whether the PokÃ©mon have been swapped.
  */
 static bool _saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 {
@@ -496,7 +708,7 @@ static bool _saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 	memcpy(dst, src, sizeof(SAV_Pokemon));
 	memcpy(src, &tmp, sizeof(SAV_Pokemon));
 
-	// We valid the Pokémon move'd
+	// We valid the PokÃ©mon move'd
 	src->moved = true;
 	dst->moved = true;
 
@@ -505,21 +717,24 @@ static bool _saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 
 bool saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBanked)
 {
+	if (!canPlacePokemon(src, dstBanked) || !canPlacePokemon(dst, srcBanked))
+		return false;
+
 	return _saveMovePkm(dst, src);
 }
 
 /**
- * @brief Pastes a Pokémon over another.
- * @param[out] dst The Pokémon destination.
- * @param[in] src The Pokémon source.
- * @return Whether the Pokémon has been pasted.
+ * @brief Pastes a PokÃ©mon over another.
+ * @param[out] dst The PokÃ©mon destination.
+ * @param[in] src The PokÃ©mon source.
+ * @return Whether the PokÃ©mon has been pasted.
  */
 static bool _savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 {
 	// We copy the pokemon data
 	memcpy(dst, src, sizeof(SAV_Pokemon));
 
-	// We valid the Pokémon move'd
+	// We valid the PokÃ©mon move'd
 	dst->moved = true;
 
 	return true;
@@ -527,33 +742,81 @@ static bool _savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 
 bool savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBanked)
 {
+	if (!canPlacePokemon(src, dstBanked))
+		return false;
+
 	return _savePastePkm(dst, src);
 }
 
 bool saveIsPkmEmpty(const SAV_Pokemon* pkm)
 {
-	// 0x00 might be the egg (Gen II)
-	return pkm->species == 0x00 || pkm->species > 0xBE;
+	return pkm->nationalDex == 0 || pkm->nationalDex > PKM_COUNT;
 }
 
 const char8_t* saveGetTrainerName(void)
 {
+	if (vgame >= POKEMON_GOLD)
+		return save + OFFSET_OT_NAME_GSC;
 	return save + (lgame == POKEMON_JP ? OFFSET_OT_NAME_JSAV : OFFSET_OT_NAME_FSAV);
 }
 
 const char8_t* saveGetRivalName(void)
 {
+	if (vgame >= POKEMON_GOLD)
+		return save + (lgame == POKEMON_JP ? OFFSET_RIVAL_NAME_GSC_JSAV : OFFSET_RIVAL_NAME_GSC_FSAV);
 	return save + (lgame == POKEMON_JP ? OFFSET_RIVAL_NAME_JSAV : OFFSET_RIVAL_NAME_FSAV);
 }
 
 uint8_t* saveGetPokedexOwned(void)
 {
+	if (vgame >= POKEMON_GOLD)
+	{
+		if (vgame == POKEMON_CRYSTAL)
+			return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_OWNED_C_JSAV : OFFSET_POKEDEX_OWNED_C_FSAV);
+		return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_OWNED_GS_JSAV : OFFSET_POKEDEX_OWNED_GS_FSAV);
+	}
 	return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_OWNED_JSAV : OFFSET_POKEDEX_OWNED_FSAV);
 }
 
 uint8_t* saveGetPokedexSeen(void)
 {
+	if (vgame >= POKEMON_GOLD)
+	{
+		if (vgame == POKEMON_CRYSTAL)
+			return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_SEEN_C_JSAV : OFFSET_POKEDEX_SEEN_C_FSAV);
+		return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_SEEN_GS_JSAV : OFFSET_POKEDEX_SEEN_GS_FSAV);
+	}
 	return save + (lgame == POKEMON_JP ? OFFSET_POKEDEX_SEEN_JSAV : OFFSET_POKEDEX_SEEN_FSAV);
+}
+
+uint16_t saveGetGamePokedexOwnedCount(void)
+{
+	const uint8_t* owned = saveGetPokedexOwned();
+	if (!owned) return 0;
+	uint16_t maxSp = (vgame >= POKEMON_GOLD ? 251 : 151);
+	uint16_t count = 0;
+	for (uint16_t i = 1; i <= maxSp; i++)
+	{
+		uint8_t bit = (uint8_t)(i - 1);
+		if ((owned[bit / 8] >> (bit % 8)) & 1)
+			count++;
+	}
+	return count;
+}
+
+bool saveIsGamePokedexComplete(void)
+{
+	const uint8_t* owned = saveGetPokedexOwned();
+	if (!owned) return false;
+	uint16_t reqMax = (vgame >= POKEMON_GOLD ? 250 : 150);
+	uint16_t count = 0;
+	for (uint16_t i = 1; i <= reqMax; i++)
+	{
+		uint8_t bit = (uint8_t)(i - 1);
+		if ((owned[bit / 8] >> (bit % 8)) & 1)
+			count++;
+	}
+	return (count >= reqMax);
 }
 
 Result saveReadFile(uint8_t* save, const char* path)
@@ -565,7 +828,11 @@ Result saveReadFile(uint8_t* save, const char* path)
 	ret = FS_ReadFile(path, save, SAVE_SIZE, saveArchive, &bytesRead);
 
 	if (R_FAILED(ret)) printf(" ERROR\n");
-	else printf(" OK\n");
+	else
+	{
+		printf(" OK\n");
+		saveFileSize = (bytesRead >= 0x8000 && bytesRead <= SAVE_SIZE ? bytesRead : 0x8000);
+	}
 	printf("  Read %ld/%d bytes\n", bytesRead, SAVE_SIZE);
 
 	return ret;
@@ -582,36 +849,142 @@ Result saveWriteFile(const uint8_t* save, const char* path)
 	else printf(" OK\n");
 
 	printf("Writing save file...");
-	ret = FS_WriteFile(path, save, SAVE_SIZE, saveArchive, &bytesWritten);
+	ret = FS_WriteFile(path, save, saveFileSize, saveArchive, &bytesWritten);
 	if (R_FAILED(ret)) printf(" ERROR\n");
-	else printf(" OK\n  Written %ld/%d bytes\n", bytesWritten, SAVE_SIZE);
+	else printf(" OK\n  Written %ld/%ld bytes\n", bytesWritten, saveFileSize);
 
 	return bytesWritten;
+}
+
+static uint16_t saveGetBoxOffset(uint8_t i, uint16_t boxSize)
+{
+	if (vgame >= POKEMON_GOLD)
+	{
+		uint8_t split = (lgame == POKEMON_JP ? 6 : 7);
+		uint16_t stride = boxSize + 2;
+		return (i < split) ? (OFFSET_BOX_1 + i * stride) : (OFFSET_BOX_2 + (i - split) * stride);
+	}
+	else
+	{
+		uint8_t split = sgame.boxCount / 2;
+		return (i < split ? OFFSET_BOX_1 : OFFSET_BOX_2 - split * boxSize) + i * boxSize;
+	}
+}
+
+static uint16_t saveGetCurrentBoxOffset(void)
+{
+	if (vgame >= POKEMON_GOLD)
+	{
+		return (vgame != POKEMON_CRYSTAL && lgame != POKEMON_JP) ? OFFSET_CURRENT_GS_FSAV : OFFSET_CURRENT_GSC_OTHER;
+	}
+	return (lgame == POKEMON_JP ? OFFSET_CURRENT_JSAV : OFFSET_CURRENT_FSAV);
 }
 
 void saveReadData(const uint8_t* save, SAV_Game* sgame, SAV_GameLang lgame)
 {
 	char title[11];
-	sgame->boxCount = (lgame == POKEMON_JP ? 8 : 12);
+	uint8_t sizePkm = (vgame >= POKEMON_GOLD ? 0x20 : 0x21);
+
+	memset(sgame, 0, sizeof(SAV_Game));
+
+	if (vgame >= POKEMON_GOLD)
+		sgame->boxCount = (lgame == POKEMON_JP ? 9 : 14);
+	else
+		sgame->boxCount = (lgame == POKEMON_JP ? 8 : 12);
+
 	sgame->boxCapacity = (lgame == POKEMON_JP ? 30 : 20);
 	sgame->nameSize = (lgame == POKEMON_JP ? 0x6 : 0xB);
 
-	uint16_t offsetCurrent = (lgame == POKEMON_JP ? OFFSET_CURRENT_JSAV : OFFSET_CURRENT_FSAV);
-	uint16_t boxSize = BOX_SIZE(sgame->boxCapacity,0x21,sgame->nameSize);
+	uint16_t offsetCurrent = saveGetCurrentBoxOffset();
+	uint16_t boxSize = BOX_SIZE(sgame->boxCapacity, sizePkm, sgame->nameSize);
+	uint8_t currentBox = saveGetCurrentBox(save);
+
+	// In Gen I, bit 7 (0x80) of wCurrentBoxNum indicates whether inactive boxes in SRAM Banks 2 & 3
+	// have been initialized since starting a New Game. If 0, only currentBox is valid.
+	bool gen1BoxesInitialized = true;
+	if (vgame <= POKEMON_YELLOW)
+	{
+		uint16_t idxOff = (lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_JSAV : OFFSET_CURRENT_IDX_FSAV);
+		gen1BoxesInitialized = ((save[idxOff] & 0x80) != 0);
+	}
 
 	for (uint8_t i = 0; i < sgame->boxCount; i++)
 	{
 		sgame->boxes[i].index = i;
-		sprintf(title, "Box %u", i+1);
+		sprintf(title, "CAJA %u", i+1);
 		fontConvertString(sgame->boxes[i].title, title);
-		saveExtractPokemonList(save, &sgame->boxes[i], (i == saveGetCurrentBox(save) ? offsetCurrent : (i < sgame->boxCount/2 ? OFFSET_BOX_1 : OFFSET_BOX_2 - (sgame->boxCount/2) * boxSize) + i * boxSize), 0x21, sgame->nameSize, sgame->boxCapacity);
+
+		uint16_t sramBoxOff = saveGetBoxOffset(i, boxSize);
+		uint16_t offset = (i == currentBox ? offsetCurrent : sramBoxOff);
+
+		if (vgame <= POKEMON_YELLOW && !gen1BoxesInitialized && i != currentBox)
+		{
+			// Uninitialized SRAM bank from previous overwritten save: treat as empty
+			((uint8_t*)save)[sramBoxOff] = 0;
+			((uint8_t*)save)[sramBoxOff + 1] = 0xFF;
+		}
+		else if (vgame >= POKEMON_GOLD && i == currentBox)
+		{
+			// In Gen II, EmptyAllSRAMBoxes on New Game zeroes sBox1..14 (sramBoxOff) but leaves old data in sBox (offsetCurrent)
+			if (save[sramBoxOff] == 0 || save[sramBoxOff + 1] == 0xFF || save[sramBoxOff + 1] == 0x00)
+			{
+				((uint8_t*)save)[offsetCurrent] = 0;
+				((uint8_t*)save)[offsetCurrent + 1] = 0xFF;
+			}
+		}
+
+		saveExtractPokemonList(save, &sgame->boxes[i], offset, sizePkm, sgame->nameSize, sgame->boxCapacity);
+	}
+
+	// Purge leftover "MattiaPK" ghost Pokémon on brand-new 0-hour saves where trainer is not MattiaPK
+	const char8_t* tName = saveGetTrainerName();
+	static const uint8_t mattiaOT[7] = { 0x8C, 0xA0, 0xB3, 0xB3, 0xA8, 0xA0, 0xE1 };
+	uint8_t hours = (vgame >= POKEMON_GOLD) ? save[0x2054] : save[lgame == POKEMON_JP ? 0x2CA0 : 0x2CED];
+	if (hours == 0 && memcmp(tName, mattiaOT, 7) != 0)
+	{
+		uint8_t* gOwned = saveGetPokedexOwned();
+		uint8_t* gSeen  = saveGetPokedexSeen();
+		for (uint8_t b = 0; b < sgame->boxCount; b++)
+		{
+			bool boxCleaned = false;
+			for (uint8_t s = 0; s < sgame->boxes[b].capacity; s++)
+			{
+				SAV_Pokemon* pkm = &sgame->boxes[b].slots[s];
+				if (!saveIsPkmEmpty(pkm) && memcmp(pkm->nameOT, mattiaOT, 7) == 0)
+				{
+					uint8_t ndex = pkm->nationalDex;
+					if (ndex >= 1 && ndex <= 251)
+					{
+						uint8_t bit = ndex - 1;
+						if (gOwned) gOwned[bit / 8] &= ~(1 << (bit % 8));
+						if (gSeen)  gSeen[bit / 8]  &= ~(1 << (bit % 8));
+					}
+					memset(pkm, 0, sizeof(SAV_Pokemon));
+					pkm->species = 0xFF;
+					pkm->speciesIndex = 0xFF;
+					pkm->moved = true;
+					boxCleaned = true;
+				}
+			}
+			if (boxCleaned)
+			{
+				sgame->boxes[b].count = 0;
+				for (uint8_t s = 0; s < sgame->boxes[b].capacity; s++)
+				{
+					if (!saveIsPkmEmpty(&sgame->boxes[b].slots[s]))
+						sgame->boxes[b].count++;
+				}
+			}
+		}
 	}
 }
 
 void saveWriteData(uint8_t* save, SAV_Game* sgame)
 {
-	uint16_t offsetCurrent = (lgame == POKEMON_JP ? OFFSET_CURRENT_JSAV : OFFSET_CURRENT_FSAV);
-	uint16_t boxSize = BOX_SIZE(sgame->boxCapacity,0x21,sgame->nameSize);
+	uint8_t sizePkm = (vgame >= POKEMON_GOLD ? 0x20 : 0x21);
+	uint16_t offsetCurrent = saveGetCurrentBoxOffset();
+	uint16_t boxSize = BOX_SIZE(sgame->boxCapacity, sizePkm, sgame->nameSize);
+	uint8_t currentBox = saveGetCurrentBox(save);
 
 	for (uint8_t iB = 0; iB < sgame->boxCount; iB++)
 	{
@@ -641,22 +1014,40 @@ void saveWriteData(uint8_t* save, SAV_Game* sgame)
 			}
 		}
 
-		// Count the Pokémon
+		// Count the PokÃ©mon
 		sgame->boxes[iB].count = 0;
 		for (uint8_t iP = 0; iP < sgame->boxes[iB].capacity; iP++)
 		{
 			if (!saveIsPkmEmpty(&sgame->boxes[iB].slots[iP]))
-				sgame->boxes[iB].count++;
-
-			if (lgame != POKEMON_JP)
 			{
-			// TODO: Remove that if when JP offsets found
-			pokedexAddOwned(sgame->boxes[iB].slots[iP].nationalDex);
-			pokedexAddSeen(sgame->boxes[iB].slots[iP].nationalDex);
+				sgame->boxes[iB].count++;
+				if (!sgame->boxes[iB].slots[iP].isEgg && sgame->boxes[iB].slots[iP].moved)
+				{
+					pokedexAddOwned(sgame->boxes[iB].slots[iP].nationalDex);
+					pokedexAddSeen(sgame->boxes[iB].slots[iP].nationalDex);
+				}
 			}
 		}
 
-		saveInjectPokemonList(save, &sgame->boxes[iB], (iB == saveGetCurrentBox(save) ? offsetCurrent : (iB < sgame->boxCount/2 ? OFFSET_BOX_1 : OFFSET_BOX_2 - (sgame->boxCount/2) * boxSize) + iB * boxSize));
+		uint16_t boxOffset = saveGetBoxOffset(iB, boxSize);
+		if (vgame >= POKEMON_GOLD)
+		{
+			// In Gen II, write to SRAM box slot AND mirror to active box if iB is the active box
+			saveInjectPokemonList(save, &sgame->boxes[iB], boxOffset);
+			if (iB == currentBox)
+			{
+				saveInjectPokemonList(save, &sgame->boxes[iB], offsetCurrent);
+			}
+		}
+		else
+		{
+			if (iB != currentBox && sgame->boxes[iB].count > 0)
+			{
+				uint16_t idxOff = (lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_JSAV : OFFSET_CURRENT_IDX_FSAV);
+				save[idxOff] |= 0x80;
+			}
+			saveInjectPokemonList(save, &sgame->boxes[iB], (iB == currentBox ? offsetCurrent : boxOffset));
+		}
 	}
 
 	saveFixChecksum(save);
@@ -664,21 +1055,93 @@ void saveWriteData(uint8_t* save, SAV_Game* sgame)
 
 void saveFixChecksum(uint8_t* save)
 {
-	uint8_t chk = 0;
-	uint16_t chk_offset = (lgame == POKEMON_JP ? OFFSET_CHECKSUM_JSAV : OFFSET_CHECKSUM_FSAV);
-
-	// [0x2598 -> checksum_offset]
-	for (uint16_t off = 0x2598; off < chk_offset; off++)
+	if (vgame >= POKEMON_GOLD)
 	{
-		chk += save[off];
-	}
+		uint16_t chk = 0;
+		uint16_t chkEnd;
+		uint16_t chkOff1;
+		uint16_t chkOff2;
 
-	save[chk_offset] = ~chk;
+		if (vgame != POKEMON_CRYSTAL && lgame != POKEMON_JP)
+		{
+			// Gold / Silver International
+			chkEnd = 0x2D68;
+			chkOff1 = 0x2D69;
+			chkOff2 = 0x7E6D;
+		}
+		else if (vgame == POKEMON_CRYSTAL && lgame != POKEMON_JP)
+		{
+			// Crystal International
+			chkEnd = 0x2B82;
+			chkOff1 = 0x2D0D;
+			chkOff2 = 0x1F0D;
+		}
+		else if (vgame != POKEMON_CRYSTAL && lgame == POKEMON_JP)
+		{
+			// Gold / Silver Japanese
+			chkEnd = 0x2C8B;
+			chkOff1 = 0x2D0D;
+			chkOff2 = 0x7F0D;
+		}
+		else
+		{
+			// Crystal Japanese
+			chkEnd = 0x2AE2;
+			chkOff1 = 0x2D0D;
+			chkOff2 = 0x7F0D;
+		}
+
+		for (uint16_t off = 0x2009; off <= chkEnd; off++)
+		{
+			chk += save[off];
+		}
+
+		save[chkOff1]     = chk & 0xFF;
+		save[chkOff1 + 1] = chk >> 8;
+
+		// Mirror main save data into backup save area and write Checksum 2
+		if (vgame != POKEMON_CRYSTAL && lgame != POKEMON_JP)
+		{
+			memcpy(save + 0x15C7, save + 0x2009, 0x222F - 0x2009);
+			memcpy(save + 0x3D69, save + 0x222F, 0x23D9 - 0x222F);
+			memcpy(save + 0x0C6B, save + 0x23D9, 0x2856 - 0x23D9);
+			memcpy(save + 0x7E39, save + 0x2856, 0x288A - 0x2856);
+			memcpy(save + 0x10E8, save + 0x288A, 0x2D69 - 0x288A);
+		}
+		else if (vgame == POKEMON_CRYSTAL && lgame != POKEMON_JP)
+		{
+			memcpy(save + 0x1209, save + 0x2009, 0xB7A);
+		}
+		else if (vgame != POKEMON_CRYSTAL && lgame == POKEMON_JP)
+		{
+			memcpy(save + 0x7209, save + 0x2009, 0xC83);
+		}
+		else
+		{
+			memcpy(save + 0x7209, save + 0x2009, 0xADA);
+		}
+
+		save[chkOff2]     = chk & 0xFF;
+		save[chkOff2 + 1] = chk >> 8;
+	}
+	else
+	{
+		uint8_t chk = 0;
+		uint16_t chk_offset = (lgame == POKEMON_JP ? OFFSET_CHECKSUM_JSAV : OFFSET_CHECKSUM_FSAV);
+
+		// [0x2598 -> checksum_offset]
+		for (uint16_t off = 0x2598; off < chk_offset; off++)
+		{
+			chk += save[off];
+		}
+
+		save[chk_offset] = ~chk;
+	}
 }
 
-uint16_t bankReadFile(uint8_t* bank, const char* path)
+uint32_t bankReadFile(uint8_t* bank, const char* path)
 {
-	uint16_t bytesRead = 0;
+	uint32_t bytesRead = 0;
 
 	printf("Opening bank file...\n");
 	FILE* fp = fopen(path, "rb");
@@ -689,11 +1152,24 @@ uint16_t bankReadFile(uint8_t* bank, const char* path)
 
 		if (ferror(fp)) printf(" ERROR\n");
 		else printf(" OK\n");
-		printf("  Read %d/%d bytes\n", bytesRead, BANK_SIZE);
+		printf("  Read %lu/%u bytes\n", (unsigned long)bytesRead, BANK_SIZE);
 
 		if (!ferror(fp))
 		{
-			memset(bank + bytesRead, 0, BANK_SIZE - bytesRead);
+			if (bytesRead < BANK_SIZE)
+			{
+				memset(bank + bytesRead, 0x00, BANK_SIZE - bytesRead);
+				uint32_t boxSize = BOX_SIZE(POKEMON_LIST_MAX_COUNT, 0x21, 11);
+				for (uint32_t i = 0; i < BANK_BOX_MAX_COUNT; i++)
+				{
+					uint32_t bOffset = OFFSET_BBOX_1 + i * boxSize;
+					if (bOffset >= bytesRead)
+					{
+						bank[bOffset] = 0; // count = 0
+						bank[bOffset + 1] = 0xFF; // species terminator
+					}
+				}
+			}
 			bankUpdate(bank, bytesRead);
 		}
 
@@ -712,9 +1188,9 @@ uint16_t bankReadFile(uint8_t* bank, const char* path)
 	return bytesRead;
 }
 
-uint16_t bankWriteFile(const uint8_t* bank, const char* path)
+uint32_t bankWriteFile(const uint8_t* bank, const char* path)
 {
-	uint16_t bytesWritten = 0;
+	uint32_t bytesWritten = 0;
 
 	printf("Opening bank file...\n");
 	FILE* fp = fopen(path, "wb");
@@ -725,7 +1201,7 @@ uint16_t bankWriteFile(const uint8_t* bank, const char* path)
 
 		if (ferror(fp)) printf(" ERROR\n");
 		else printf(" OK\n");
-		printf("  Written %d/%d bytes\n", bytesWritten, BANK_SIZE);
+		printf("  Written %lu/%u bytes\n", (unsigned long)bytesWritten, BANK_SIZE);
 
 		fclose(fp);
 	}
@@ -733,23 +1209,23 @@ uint16_t bankWriteFile(const uint8_t* bank, const char* path)
 	return bytesWritten;
 }
 
-void bankReadData(uint8_t* bank, SAV_Bank* sbank, uint16_t bytesRead)
+void bankReadData(uint8_t* bank, SAV_Bank* sbank, uint32_t bytesRead)
 {
-	char title[11];
+	char title[16];
 	sbank->magic = *(uint32_t*)(bank + 0x00);
 	sbank->version = *(uint32_t*)(bank + 0x04);
 	sbank->boxCount = BANK_BOX_MAX_COUNT;
 	sbank->boxCapacity = POKEMON_LIST_MAX_COUNT;
 
-	uint16_t nameSize = 0xB;
-	uint16_t boxSize = BOX_SIZE(sbank->boxCapacity,0x21,nameSize);
+	uint8_t nameSize = 0xB;
+	uint32_t boxSize = BOX_SIZE(sbank->boxCapacity, 0x21, nameSize);
 
 	for (uint8_t i = 0; i < sbank->boxCount; i++)
 	{
 		sbank->boxes[i].index = i;
-		sprintf(title, "Box %u", i+1);
+		sprintf(title, "CAJA %u", (unsigned int)(i + 1));
 		fontConvertString(sbank->boxes[i].title, title);
-		saveExtractPokemonList(bank, &sbank->boxes[i], OFFSET_BBOX_1 + i * boxSize, 0x21, nameSize, sbank->boxCapacity);
+		saveExtractPokemonList(bank, &sbank->boxes[i], OFFSET_BBOX_1 + (uint32_t)i * boxSize, 0x21, nameSize, sbank->boxCapacity);
 	}
 }
 
@@ -758,8 +1234,8 @@ void bankWriteData(uint8_t* bank, SAV_Bank* sbank)
 	*(uint32_t*)(bank + 0x00) = sbank->magic;
 	*(uint32_t*)(bank + 0x04) = sbank->version;
 
-	uint16_t nameSize = 0xB;
-	uint16_t boxSize = BOX_SIZE(sbank->boxCapacity,0x21,nameSize);
+	uint8_t nameSize = 0xB;
+	uint32_t boxSize = BOX_SIZE(sbank->boxCapacity, 0x21, nameSize);
 
 	for (uint8_t iB = 0; iB < sbank->boxCount; iB++)
 	{
@@ -789,7 +1265,7 @@ void bankWriteData(uint8_t* bank, SAV_Bank* sbank)
 			}
 		}
 
-		// Count the Pokémon
+		// Count the Pokemon
 		sbank->boxes[iB].count = 0;
 		for (uint8_t iP = 0; iP < sbank->boxes[iB].capacity; iP++)
 		{
@@ -797,6 +1273,80 @@ void bankWriteData(uint8_t* bank, SAV_Bank* sbank)
 				sbank->boxes[iB].count++;
 		}
 
-		saveInjectPokemonList(bank, &sbank->boxes[iB], OFFSET_BBOX_1 + iB * boxSize);
+		saveInjectPokemonList(bank, &sbank->boxes[iB], OFFSET_BBOX_1 + (uint32_t)iB * boxSize);
 	}
+}
+
+bool saveIsPkmShiny(const SAV_Pokemon* pkm)
+{
+	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return false;
+	return (pkm->IVs[STAT_DEF] == 10 &&
+	        pkm->IVs[STAT_SPE] == 10 &&
+	        pkm->IVs[STAT_SPC] == 10 &&
+	        ((pkm->IVs[STAT_ATK] & 2) == 2));
+}
+
+void saveRecalculateStats(SAV_Pokemon* pkm)
+{
+	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return;
+
+	// In Gen 1 and 2, HP DV is calculated from the lowest bits of ATK, DEF, SPE, SPC:
+	pkm->IVs[STAT_HP] = ((pkm->IVs[STAT_ATK] & 0x1) << 3) |
+	                    ((pkm->IVs[STAT_DEF] & 0x1) << 2) |
+	                    ((pkm->IVs[STAT_SPE] & 0x1) << 1) |
+	                    ((pkm->IVs[STAT_SPC] & 0x1) << 0);
+
+	const PersonalInfo* pInfo = Personal(pkm->nationalDex);
+	if (!pInfo) return;
+
+	pkm->types[0] = pInfo->type1;
+	pkm->types[1] = pInfo->type2;
+
+	uint16_t oldMax = pkm->maxHP;
+	pkm->maxHP = ((((pInfo->HP + pkm->IVs[STAT_HP]) * 2 + sqrt(pkm->EVs[STAT_HP]) / 4) * pkm->level) / 100) + pkm->level + 10;
+	pkm->ATK   = ((((pInfo->ATK + pkm->IVs[STAT_ATK]) * 2 + sqrt(pkm->EVs[STAT_ATK]) / 4) * pkm->level) / 100) + 5;
+	pkm->DEF   = ((((pInfo->DEF + pkm->IVs[STAT_DEF]) * 2 + sqrt(pkm->EVs[STAT_DEF]) / 4) * pkm->level) / 100) + 5;
+	pkm->SPE   = ((((pInfo->SPE + pkm->IVs[STAT_SPE]) * 2 + sqrt(pkm->EVs[STAT_SPE]) / 4) * pkm->level) / 100) + 5;
+	pkm->SPC   = ((((pInfo->SPC + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+	pkm->SPD   = ((((pInfo->SPD + pkm->IVs[STAT_SPC]) * 2 + sqrt(pkm->EVs[STAT_SPC]) / 4) * pkm->level) / 100) + 5;
+
+	if (oldMax == 0 || pkm->currentHP >= oldMax || pkm->currentHP > pkm->maxHP)
+	{
+		pkm->currentHP = pkm->maxHP;
+	}
+}
+
+void saveSetPkmShiny(SAV_Pokemon* pkm, bool shiny)
+{
+	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return;
+	if (shiny)
+	{
+		// Optimal Gen 1 & 2 Shiny DVs: Atk 15 (odd gives HP DV 8), Def 10, Spe 10, Spc 10
+		pkm->IVs[STAT_ATK] = 15;
+		pkm->IVs[STAT_DEF] = 10;
+		pkm->IVs[STAT_SPE] = 10;
+		pkm->IVs[STAT_SPC] = 10;
+	}
+	else
+	{
+		// Standard competitive max non-shiny DVs (15 all)
+		pkm->IVs[STAT_ATK] = 15;
+		pkm->IVs[STAT_DEF] = 15;
+		pkm->IVs[STAT_SPE] = 15;
+		pkm->IVs[STAT_SPC] = 15;
+	}
+	saveRecalculateStats(pkm);
+}
+
+void saveSetPkmLevel(SAV_Pokemon* pkm, uint8_t newLevel)
+{
+	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return;
+	if (newLevel < 1) newLevel = 1;
+	if (newLevel > 100) newLevel = 100;
+	pkm->currentLevel = newLevel;
+	pkm->level = newLevel;
+	uint32_t exp = (uint32_t)newLevel * (uint32_t)newLevel * (uint32_t)newLevel;
+	if (exp > 1000000) exp = 1000000;
+	pkm->experience = exp;
+	saveRecalculateStats(pkm);
 }

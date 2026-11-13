@@ -1,13 +1,12 @@
 #include "font.h"
 #include "save.h"
-#include "pkdir.h"
+#include "render.h"
 
-#include <sf2d.h>
-#include <sfil.h>
+#include "gb_font.h"
 
 #define CHAR_SIZE (8)
+#define FONT_PATH "romfs:/gfx/gb_font.t3x"
 
-///
 typedef enum
 {
 	C_NULL = 0x00,			///< \0
@@ -26,28 +25,36 @@ typedef enum
 	C_ROCKET = 0x5E,		///< ROCKET
 } FONT_ControlChar;
 
-static sf2d_texture* fontGB;
-static sf2d_texture* fontJPGB;
+static C2D_SpriteSheet fontSheet;
+static C2D_Image fontGB;
+static C2D_Image fontJPGB;
+static C2D_Image fontWhiteGB;
+static bool useWhiteFont = false;
 
 Result fontLoad(void)
 {
-	fontGB = sfil_load_PNG_file(ROMFS_FOLDER "font_gb.png", SF2D_PLACE_RAM);
-	fontJPGB = sfil_load_PNG_file(ROMFS_FOLDER "font_gb_jp.png", SF2D_PLACE_RAM);
+	fontSheet = renderLoadSheet(FONT_PATH);
+	if (!fontSheet) return -5;
 
-	return (fontGB && fontJPGB ? 0 : -5);
+	fontGB = renderSheetImage(fontSheet, gb_font_font_gb_idx);
+	fontJPGB = renderSheetImage(fontSheet, gb_font_font_gb_jp_idx);
+	fontWhiteGB = renderSheetImage(fontSheet, gb_font_font_gb_white_idx);
+	useWhiteFont = false;
+
+	return (fontGB.tex && fontJPGB.tex ? 0 : -5);
 }
 
 void fontFree(void)
 {
-	sf2d_free_texture(fontGB);
-	sf2d_free_texture(fontJPGB);
+	if (fontSheet) C2D_SpriteSheetFree(fontSheet);
+	fontSheet = NULL;
 }
 
-/**
- * @brief Converts a char character to a char8_t character.
- * @param c The char character.
- * @return The char8_t character.
- */
+void fontSetWhite(bool white)
+{
+	useWhiteFont = white;
+}
+
 static char8_t fontConvertChar(char c)
 {
 	switch (c)
@@ -56,55 +63,53 @@ static char8_t fontConvertChar(char c)
 		case 'a' ... 'z': return 0xA0 + (c - 'a');
 		case '0' ... '9': return 0xF6 + (c - '0');
 		case ' ': return 0x7F;
+		case '-': return 0xE3;
+		case '?': return 0xE6;
+		case '!': return 0xE7;
+		case '.': return 0xE8;
+		case '/': return 0xF3;
+		case ',': return 0xF4;
+		case ':': return 0x9C;
+		case '(': return 0x9A;
+		case ')': return 0x9B;
+		case '+': return 0x10;
 		default: return 0x50;
 	}
 }
 
 void fontConvertString(char8_t* str8, const char* str)
 {
-	while (*str != 0x00 && *str != 0x50)
+	while (*str != 0x00)
 	{
 		*str8 = fontConvertChar(*str);
 		str8++;
 		str++;
 	}
+	*str8 = 0x50;
 }
 
 int8_t fontDrawChar8(int16_t x, int16_t y, char8_t c)
 {
-	// Do not draw the control characters.
-	// if (c >= 0x48 && c <= 0x5F) return 0;
-
-	sf2d_draw_texture_part(fontGB, x, y, (c % 0x10) * CHAR_SIZE, (c / 0x10) * CHAR_SIZE, CHAR_SIZE, CHAR_SIZE);
+	C2D_Image img = (useWhiteFont && c != 0x00 && c != 0xD8 && c != 0xD9) ? fontWhiteGB : fontGB;
+	renderDrawImagePart(img, x, y, (c % 0x10) * CHAR_SIZE, (c / 0x10) * CHAR_SIZE, CHAR_SIZE, CHAR_SIZE);
 
 	return CHAR_SIZE;
 }
 
 int8_t fontDrawJPChar8(int16_t x, int16_t y, char8_t c)
 {
-	// Do not draw the control characters.
-	// if (c >= 0x48 && c <= 0x5F) return 0;
-
-	sf2d_draw_texture_part(fontJPGB, x, y, (c % 0x10) * CHAR_SIZE, (c / 0x10) * CHAR_SIZE, CHAR_SIZE, CHAR_SIZE);
+	renderDrawImagePart(fontJPGB, x, y, (c % 0x10) * CHAR_SIZE, (c / 0x10) * CHAR_SIZE, CHAR_SIZE, CHAR_SIZE);
 
 	return CHAR_SIZE;
 }
 
 int8_t fontDrawSubchar8(int16_t x, int16_t y, char8_t c, FONT_Subchar8 i)
 {
-	sf2d_draw_texture_part(fontGB, x, y, (c % 0x10) * CHAR_SIZE + (i % 4 % 2) * CHAR_SIZE / 2, (c / 0x10) * CHAR_SIZE + (i % 4 / 2) * CHAR_SIZE / 2, CHAR_SIZE / 2, CHAR_SIZE / 2);
+	renderDrawImagePart(fontGB, x, y, (c % 0x10) * CHAR_SIZE + (i % 4 % 2) * CHAR_SIZE / 2, (c / 0x10) * CHAR_SIZE + (i % 4 / 2) * CHAR_SIZE / 2, CHAR_SIZE / 2, CHAR_SIZE / 2);
 
 	return CHAR_SIZE / 2;
 }
 
-/**
- * @brief Handles a char8_t control character.
- * @param o_x The x original position.
- * @param o_y The y original position.
- * @param[in] x The x position.
- * @param[in] y The y position.
- * @param c The char8_t character.
- */
 static void fontDrawControlChar8(int16_t o_x, int16_t o_y, int16_t* x, int16_t* y, char8_t c)
 {
 	switch (c)
@@ -157,87 +162,99 @@ static void fontDrawControlChar8(int16_t o_x, int16_t o_y, int16_t* x, int16_t* 
 			*x += fontDrawChar8(*x, *y, 0x84); // E
 			*x += fontDrawChar8(*x, *y, 0x93); // T
 			break;
-		default: return;
 	}
 }
 
-uint16_t fontDrawJPString8(int16_t x, int16_t y, const char8_t* str)
+uint16_t fontDrawString8(int16_t x, int16_t y, const char8_t* str8)
 {
-	int16_t o_x = x;
-	while (*str != 0x00 && *str != 0x50)
+	int16_t o_x = x, o_y = y;
+	while (*str8 != C_TERMINATOR && *str8 != C_NULL)
 	{
-		// If it is a control char
-		if (*str >= 0x48 && *str <= 0x5F);
-		// If it is a print/junk char
-		else
+		char8_t c = *str8;
+		if (c >= 0xD0 && c <= 0xD5)
 		{
-			x += fontDrawJPChar8(x, y, *str);
+			c = 0x20 + (c - 0xD0);
 		}
-		str++;
+
+		if (0x49 <= c && c <= 0x5F)
+			fontDrawControlChar8(o_x, o_y, &x, &y, c);
+		else
+			x += fontDrawChar8(x, y, c);
+		str8++;
 	}
+
 	return x - o_x;
 }
 
-uint16_t fontDrawString8(int16_t x, int16_t y, const char8_t* str)
+uint16_t fontDrawJPString8(int16_t x, int16_t y, const char8_t* str8)
 {
-	int16_t o_x = x, o_y = y;
-	while (*str != 0x00 && *str != 0x50)
+	int16_t o_x = x;
+	while (*str8 != C_TERMINATOR && *str8 != C_NULL)
 	{
-		// If it is a control char
-		if (*str >= 0x48 && *str <= 0x5F)
-		{
-			fontDrawControlChar8(o_x, o_y, &x, &y, *str);
-		}
-		// If it is a print/junk char
+		if (*str8 == C_LINE_BREAK) { x = o_x; y += CHAR_SIZE; }
+		else if (*str8 == 0xE3) { x += fontDrawJPChar8(x, y, 0xE3); }
 		else
-		{
-			x += fontDrawChar8(x, y, *str);
-		}
-		str++;
+			x += fontDrawJPChar8(x, y, *str8);
+		str8++;
 	}
+
 	return x - o_x;
 }
 
 uint16_t fontDrawUInt8(int16_t x, int16_t y, int8_t v)
 {
 	int16_t o_x = x;
-	bool found = false;
-	for (uint16_t i = 10000; i > 0; i /= 10)
+
+	if (v < 0)
 	{
-		if (v / i % 10 != 0)
-			found = true;
-		if (found)
-			x += fontDrawChar8(x, y, 0xF6 + (v / i % 10));
+		x += fontDrawChar8(x, y, 0xE3);
+		v = -v;
 	}
+
+	if (v / 100 != 0)
+		x += fontDrawChar8(x, y, 0xF6 + (v / 100) % 10);
+	if (v / 10 != 0)
+		x += fontDrawChar8(x, y, 0xF6 + (v / 10) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 1) % 10);
+
 	return x - o_x;
 }
 
 uint16_t fontDrawFromRightUInt32(int16_t x, int16_t y, uint32_t v)
 {
 	int16_t o_x = x;
-	for (uint32_t i = 1; i < 100000 && (i == 1 || v/i != 0); i *= 10)
-	{
-		x -= fontDrawChar8(x, y, 0xF6 + (v / i % 10));
-	}
-	return x - o_x;
+
+	x -= fontDrawChar8(x, y, 0xF6 + (v % 10));
+	if (v >= 10)      x -= fontDrawChar8(x, y, 0xF6 + (v / 10) % 10);
+	if (v >= 100)     x -= fontDrawChar8(x, y, 0xF6 + (v / 100) % 10);
+	if (v >= 1000)    x -= fontDrawChar8(x, y, 0xF6 + (v / 1000) % 10);
+	if (v >= 10000)   x -= fontDrawChar8(x, y, 0xF6 + (v / 10000) % 10);
+	if (v >= 100000)  x -= fontDrawChar8(x, y, 0xF6 + (v / 100000) % 10);
+	if (v >= 1000000) x -= fontDrawChar8(x, y, 0xF6 + (v / 1000000) % 10);
+
+	return o_x - x;
 }
 
 uint16_t fontDrawPaddingUInt8(int16_t x, int16_t y, uint8_t v)
 {
 	int16_t o_x = x;
-	for (uint16_t i = 100; i > 0; i /= 10)
-	{
-		x += fontDrawChar8(x, y, 0xF6 + (v / i % 10));
-	}
+
+	x += fontDrawChar8(x, y, 0xF6 + (v / 100) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 10) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 1) % 10);
+
 	return x - o_x;
 }
 
 uint16_t fontDrawPaddingUInt16(int16_t x, int16_t y, uint16_t v)
 {
 	int16_t o_x = x;
-	for (uint32_t i = 10000; i > 0; i /= 10)
-	{
-		x += fontDrawChar8(x, y, 0xF6 + ((v / i) % 10));
-	}
+
+	x += fontDrawChar8(x, y, 0xF6 + (v / 10000) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 1000) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 100) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 10) % 10);
+	x += fontDrawChar8(x, y, 0xF6 + (v / 1) % 10);
+
 	return x - o_x;
 }

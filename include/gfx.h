@@ -1,10 +1,9 @@
 #pragma once
 
-#include <sf2d.h>
+#include <3ds/types.h>
 
 #include "pokedex.h"
 
-/// Unused
 typedef enum
 {
 	PKM_ICON_BIPED = 0,		///< SPRITE_MON       Pokémon icon (2 frames) 
@@ -20,73 +19,37 @@ typedef enum
 	PKM_ICON_MISSINGNO = 0,	///<                  Missingno icon (0 frames)
 } GFX_PkmIcon;
 
-/// 
 typedef enum
 {
 	GFX_FRAME_0 = 0,	///< First frame.
 	GFX_FRAME_1 = 1,	///< Second frame.
 } GFX_Frame;
 
-/**
- * @brief Loads and initializes the gfx module.
- */
 Result gfxLoad(void);
-
-/**
- * @brief Loads the gb frame of the game version.
- */
 Result gfxLoadFrame(uint64_t titleid);
-
-/**
- * @brief Frees and exits the gfx module.
- */
 void gfxFree(void);
-
-/**
- * @brief Frees the gb frame of the game version.
- */
 void gfxFreeFrame(void);
 
-/**
- * @brief Draws a Pokémon icon.
- * @param x The x position.
- * @param y The y position.
- * @param icon The gfx icon to draw.
- * @param frame The gfx frame to draw.
- */
 void gfxDrawPokemonIcon(int16_t x, int16_t y, DEX_Species icon, GFX_Frame frame);
-
-/**
- * @todo
- */
+void gfxDrawCrystalSprite(int16_t x, int16_t y, uint8_t species, GFX_Frame frame);
+void gfxDrawGamePokemonSprite(int16_t x, int16_t y, uint8_t species, uint8_t gameVersion);
 void gfxDrawFrame(int16_t x, int16_t y);
-
-/**
- * @todo
- */
 void gfxDrawFolio(int16_t x, int16_t y, uint8_t w, uint8_t h);
-
-/**
- * @todo
- */
 void gfxDrawPanel(int16_t x, int16_t y, uint8_t w, uint8_t h);
-
-/**
- * @todo
- */
 void gfxDrawLevel(int16_t x, int16_t y, uint8_t level);
-
-/**
- * @todo
- */
 void gfxDrawLifeBar(int16_t x, int16_t y, uint16_t currentHP, uint16_t maxHP, bool onlyBar);
-
-/**
- * @todo
- */
 void gfxDrawEmptyArrow(int16_t x, int16_t y);
-
-/**
- * @todo
- */
 void gfxDrawFullArrow(int16_t x, int16_t y);
+
+// Extra UI & Carousel Drawing
+void gfxDrawBezel(bool isGBC);
+void gfxDrawAnimatedTitleScreen(int16_t x, int16_t y, uint8_t version);
+void gfxDrawTrainerCardBg(int16_t x, int16_t y, uint8_t version, uint8_t gender);
+void gfxDrawBadge(int16_t x, int16_t y, bool isJohto, uint8_t badgeIdx);
+void gfxDrawBagUI(int16_t x, int16_t y, uint8_t pocketIdx, bool isFemale);
+void gfxDrawPokedexBg(int16_t x, int16_t y);
+void gfxDrawWorldMap(int16_t x, int16_t y, bool isKanto);
+void gfxDrawDiplomaBg(int16_t x, int16_t y, bool isGen2);
+void gfxDrawShinyStar(int16_t x, int16_t y);
+void gfxDrawShinyStarSmall(int16_t x, int16_t y);
+void gfxDrawEggSprite(int16_t x, int16_t y);

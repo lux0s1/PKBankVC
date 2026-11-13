@@ -2,8 +2,8 @@
 
 #include "font.h"
 
-#define SAVE_SIZE (0x8000) // 0x7A4C
-#define BANK_SIZE (0x8E00) // 0x8D28
+#define SAVE_SIZE (0x10000) // Gen 1/2: 0x8000 | JP Crystal: 0x10000
+#define BANK_SIZE (0x2BE00) // 100 boxes: 0x100 + 100 * 1794 = 0x2BDC8 -> 0x2BE00
 /**
  * c: Capacity
  * sp: Pokémon Size (PC: 0x21| Party:)
@@ -12,8 +12,8 @@
 #define BOX_SIZE(c,sp,sn) (2+(c)*(1+(sp)+(sn)*2)) // (1+c+1+c*sp+c*sn+c*sn)
 #define POKEMON_LIST_MAX_COUNT (32) // Party: 6 | Box: 20 | BoxJP: 30 | BoxBK: 32
 #define ITEM_LIST_MAX_COUNT (100) // Pocket: 20 | PC: 50 | Bank: 100
-#define GAME_BOX_MAX_COUNT (12) // 12 | JP: 8
-#define BANK_BOX_MAX_COUNT (20) // 20
+#define GAME_BOX_MAX_COUNT (14) // Gen 1: 12 (JP: 8) | Gen 2: 14 (JP: 9)
+#define BANK_BOX_MAX_COUNT (100) // 100 boxes
 
 #define NOT_POKEMON (0) // Definitely not a Pokémon
 
@@ -79,7 +79,7 @@ typedef enum
 	// TYPE_BIRD = 0x6,		///< /UNUSED
 	TYPE_BUG = 0x7,			///< Bug type
 	TYPE_GHOST = 0x8,		///< Ghost type
-	// TYPE_NORMAL = 0x9,	///< /UNUSED
+	TYPE_STEEL = 0x9,		///< Steel type (Gen II)
 	// TYPE_NORMAL = 0xA,	///< /UNUSED
 	// TYPE_NORMAL = 0xB,	///< /UNUSED
 	// TYPE_NORMAL = 0xC,	///< /UNUSED
@@ -97,6 +97,7 @@ typedef enum
 	TYPE_PSYCHIC = 0x18,	///< Psychic type
 	TYPE_ICE = 0x19,		///< Ice type
 	TYPE_DRAGON = 0x1A,		///< Dragon type
+	TYPE_DARK = 0x1B,		///< Dark type (Gen II)
 } SAV_Type;
 
 /// Pokémon stats
@@ -116,12 +117,7 @@ typedef enum
 /// Pokémon data structure
 typedef struct
 {
-	// Memory pointer
-	uint8_t* pk1;	///< UNUSED / Pk1 structure pointer
-	uint8_t* ot1;	///< UNUSED / OT name pointer
-	uint8_t* nk1;	///< UNUSED / NK name pointer
 	bool moved : 1;
-	bool jpned : 1;	///< UNUSED
 	unsigned : 7;
 
 	// Attributes
@@ -153,6 +149,14 @@ typedef struct
 	char8_t nameOT[11];		///< OT name from list
 	char8_t nameNK[11];		///< Nickname from list
 	uint8_t nationalDex;	///< National Pokédex
+
+	// Gen II attributes
+	uint8_t heldItem;		///< Held item (Gen II)
+	uint8_t friendship;		///< Friendship / Egg cycles (Gen II)
+	uint8_t pokerus;		///< Pokérus (Gen II)
+	uint16_t caughtData;	///< Caught data (Crystal)
+	uint16_t SPD;			///< Special Defense (Gen II)
+	bool isEgg;				///< Whether the slot is an Egg (Gen II)
 } SAV_Pokemon;
 
 /// A pokémon list
@@ -193,9 +197,6 @@ typedef struct
 /// Game data structure
 typedef struct
 {
-	// Memory pointer
-	uint8_t* data; // UNUSED / Buffer pointer
-
 	// Attributes
 	uint8_t nameSize;
 	uint8_t boxCount;
@@ -206,9 +207,6 @@ typedef struct
 /// Bank data structure
 typedef struct
 {
-	// Memory pointer
-	uint8_t* data; // UNUSED / Buffer pointer
-
 	// Attributes
 	uint32_t magic;
 	uint32_t version;
@@ -304,6 +302,11 @@ bool savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBa
  */
 bool saveIsPkmEmpty(const SAV_Pokemon* pkm);
 
+bool saveIsPkmShiny(const SAV_Pokemon* pkm);
+void saveSetPkmShiny(SAV_Pokemon* pkm, bool shiny);
+void saveRecalculateStats(SAV_Pokemon* pkm);
+void saveSetPkmLevel(SAV_Pokemon* pkm, uint8_t newLevel);
+
 /**
  * @todo jp
  */
@@ -332,6 +335,16 @@ uint8_t* saveGetPokedexOwned(void);
  * @return The Pokédex pointer.
  */
 uint8_t* saveGetPokedexSeen(void);
+
+/**
+ * @brief Gets the count of owned species in the active game save's Pokédex.
+ */
+uint16_t saveGetGamePokedexOwnedCount(void);
+
+/**
+ * @brief Checks if the active game save's Pokédex is completed (150+ Gen I, 250+ Gen II).
+ */
+bool saveIsGamePokedexComplete(void);
 
 /**
  * @brief Reads a save file to a save buffer.
@@ -373,7 +386,7 @@ void saveFixChecksum(uint8_t* save);
  * @param[in] path The path of the bank file.
  * @return The total of read bytes.
  */
-uint16_t bankReadFile(uint8_t* bank, const char* path);
+uint32_t bankReadFile(uint8_t* bank, const char* path);
 
 /**
  * @brief Writes a bank buffer to a bank file.
@@ -381,7 +394,7 @@ uint16_t bankReadFile(uint8_t* bank, const char* path);
  * @param[in] path The path of the bank file.
  * @return The total of written bytes.
  */
-uint16_t bankWriteFile(const uint8_t* bank, const char* path);
+uint32_t bankWriteFile(const uint8_t* bank, const char* path);
 
 /**
  * @brief Reads a bank buffer to a bank struct.
@@ -389,7 +402,7 @@ uint16_t bankWriteFile(const uint8_t* bank, const char* path);
  * @param[in] path The path of the bank file.
  * @param bytesRead The total of read bytes.
  */
-void bankReadData(uint8_t* bank, SAV_Bank* sbank, uint16_t bytesRead);
+void bankReadData(uint8_t* bank, SAV_Bank* sbank, uint32_t bytesRead);
 
 /**
  * @brief Writes a bank struct to a bank buffer.

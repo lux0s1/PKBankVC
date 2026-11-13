@@ -106,42 +106,39 @@ Result FS_CommitArchive(FS_Archive archive)
 	return ret;
 }
 
-#ifdef __cia
-
 static u32 lowPath[3];
 
-Result FSCIA_Init(u64 titleid, FS_MediaType mediatype)
+Result FSCIA_InitSaveOnly(u64 titleid, FS_MediaType mediatype)
 {
 	Result ret = 1;
 
-	debug_print("FSCIA_Init:\n");
+	debug_print("FSCIA_InitSaveOnly:\n");
 
 	if (!saveInitialized)
 	{
 		lowPath[0] = mediatype;
-		lowPath[1] = titleid; /// titleid & 0xFFFFFFFF
-		lowPath[2] = titleid >> 32; // (titleid >> 32) & 0xFFFFFFFF
-
-		debug_print(" > [0]: 0x%016lx\n", lowPath[0]);
-		debug_print(" > [1]: 0x%016lx\n", lowPath[1]);
-		debug_print(" > [2]: 0x%016lx\n", lowPath[2]);
+		lowPath[1] = titleid;
+		lowPath[2] = titleid >> 32;
 
 		ret = FSUSER_OpenArchive(&saveArchive, ARCHIVE_USER_SAVEDATA, (FS_Path) { PATH_BINARY, 12, lowPath });
 		r(" > FSUSER_OpenArchive: %lx\n", ret);
 
-		saveInitialized = R_SUCCEEDED(ret); // true
-
-		if (!saveInitialized)
-		{
-			ret = FSUSER_OpenArchive(&saveArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
-			r(" > FSUSER_OpenArchive: %lx\n", ret);
-
-			saveInitialized = R_SUCCEEDED(ret); // true
-		}
+		saveInitialized = R_SUCCEEDED(ret);
 	}
-	else
+
+	return ret;
+}
+
+Result FSCIA_Init(u64 titleid, FS_MediaType mediatype)
+{
+	Result ret = FSCIA_InitSaveOnly(titleid, mediatype);
+
+	if (!saveInitialized)
 	{
-		debug_print(" > Save already initialized\n");
+		ret = FSUSER_OpenArchive(&saveArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
+		r(" > FSUSER_OpenArchive: %lx\n", ret);
+
+		saveInitialized = R_SUCCEEDED(ret);
 	}
 
 	return ret;
@@ -161,19 +158,11 @@ Result FSCIA_Exit(void)
 		ret = FSUSER_CloseArchive(saveArchive);
 		r(" > FSUSER_CloseArchive: %lx\n", ret);
 
-		saveInitialized = !R_SUCCEEDED(ret); // false
-	}
-	else
-	{
-		debug_print(" > Save not initialized\n");
+		saveInitialized = !R_SUCCEEDED(ret);
 	}
 
 	return ret;
 }
-
-#else // __3dsx
-
-static Handle fsHandle;
 
 Result FS_Init(void)
 {
@@ -181,35 +170,20 @@ Result FS_Init(void)
 
 	debug_print("FS_Init:\n");
 
-	ret = srvGetServiceHandleDirect(&fsHandle, "fs:USER");
-	r(" > srvGetServiceHandleDirect: %lx\n", ret);
-	if (R_FAILED(ret)) return ret;
-
-	ret = FSUSER_Initialize(fsHandle);
-	r(" > FSUSER_Initialize: %lx\n", ret);
-	if (R_FAILED(ret)) return ret;
-
-	fsUseSession(fsHandle);
-	debug_print(" > fsUseSession\n");
-
 	if (!saveInitialized)
 	{
 		ret = FSUSER_OpenArchive(&saveArchive, ARCHIVE_SAVEDATA, fsMakePath(PATH_EMPTY, NULL));
 		r(" > FSUSER_OpenArchive: %lx\n", ret);
 
-		saveInitialized = R_SUCCEEDED(ret); // true
+		saveInitialized = R_SUCCEEDED(ret);
 
 		if (!saveInitialized)
 		{
 			ret = FSUSER_OpenArchive(&saveArchive, ARCHIVE_SDMC, fsMakePath(PATH_EMPTY, NULL));
 			r(" > FSUSER_OpenArchive: %lx\n", ret);
 
-			saveInitialized = R_SUCCEEDED(ret); // true
+			saveInitialized = R_SUCCEEDED(ret);
 		}
-	}
-	else
-	{
-		debug_print(" > Save already initialized\n");
 	}
 
 	return ret;
@@ -217,32 +191,5 @@ Result FS_Init(void)
 
 Result FS_Exit(void)
 {
-	Result ret = 1;
-
-	debug_print("FS_Exit:\n");
-
-	if (saveInitialized)
-	{
-		ret = FS_CommitArchive(saveArchive);
-		r(" > FS_CommitArchive: %lx\n", ret);
-
-		ret = FSUSER_CloseArchive(saveArchive);
-		r(" > FSUSER_CloseArchive: %lx\n", ret);
-
-		saveInitialized = !R_SUCCEEDED(ret); // false
-	}
-	else
-	{
-		debug_print(" > Save not initialized\n");
-	}
-
-	fsEndUseSession();
-	debug_print(" > fsEndUseSession\n");
-
-	ret = svcCloseHandle(fsHandle);
-	r(" > svcCloseHandle: %lx\n", ret);
-
-	return ret;
+	return FSCIA_Exit();
 }
-
-#endif

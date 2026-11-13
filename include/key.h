@@ -25,7 +25,7 @@ enum
  * @brief Blocks the running process until some keys are pressed.
  * @param key The key(s) to press.
  */
-inline void waitKey(u32 key)
+static inline void waitKey(u32 key)
 {
 	while (aptMainLoop())
 	{

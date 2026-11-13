@@ -179,64 +179,139 @@ uint8_t pokedexGetNational(uint8_t index)
 		case 0xBC: return  69; // Bellsprout
 		case 0xBD: return  70; // Weepinbell
 		case 0xBE: return  71; // Victreebel
-		case 0x1F: // Scizor
-		case 0x20: // Shuckle
-		case 0x32: // Heracross
-		case 0x34: // Ho-Oh
-		case 0x38: // Sneasel
-		case 0x3D: // Teddiursa
-		case 0x3E: // Ursaring
-		case 0x3F: // Slugma
-		case 0x43: // Magcargo
-		case 0x44: // Swinub
-		case 0x45: // Piloswine
-		case 0x4f: // Corsola
-		case 0x50: // Remoraid
-		case 0x56: // Delibird
-		case 0x57: // Mantine
-		case 0x5E: // Skarmory
-		case 0x5F: // Houndour
-		case 0x73: // Houndoom
-		case 0x79: // Kingdra
-		case 0x7A: // Phanpy
-		case 0x7F: // Donphan
-		case 0x86: // Porygon2
-		case 0x87: // Stantler
-		case 0x8C: // Tyrogue
-		case 0x92: // Hitmontop
-		case 0x9C: // Smoochum
-		case 0x9F: // Elekid
-		case 0xA0: // Magby
-		case 0xA1: // Miltank
-		case 0xA2: // Blissey
-		case 0xAC: // Raikou
-		case 0xAE: // Entei
-		case 0xAF: // Suicune
-		case 0xB5: // Larvitar
-		case 0xB6: // Pupitar (Kabutops Fossil)
-		case 0xB7: // Tyranitar (Aerodactly Fossil)
-		case 0xB8: // Lugia (Ghost)
-		           return 152; // Missingno.
-		default:   return 153; // Garbage data
+
+		// Gen II mappings (39 unused indices in 0x01..0xBE + 0xBF..0xFB)
+		case 0x1F: return 212; // Scizor
+		case 0x20: return 213; // Shuckle
+		case 0x32: return 214; // Heracross
+		case 0x34: return 250; // Ho-Oh
+		case 0x38: return 215; // Sneasel
+		case 0x3D: return 216; // Teddiursa
+		case 0x3E: return 217; // Ursaring
+		case 0x3F: return 218; // Slugma
+		case 0x43: return 219; // Magcargo
+		case 0x44: return 220; // Swinub
+		case 0x45: return 221; // Piloswine
+		case 0x4F: return 222; // Corsola
+		case 0x50: return 223; // Remoraid
+		case 0x51: return 224; // Octillery
+		case 0x56: return 225; // Delibird
+		case 0x57: return 226; // Mantine
+		case 0x5E: return 227; // Skarmory
+		case 0x5F: return 228; // Houndour
+		case 0x73: return 229; // Houndoom
+		case 0x79: return 230; // Kingdra
+		case 0x7A: return 231; // Phanpy
+		case 0x7F: return 232; // Donphan
+		case 0x86: return 233; // Porygon2
+		case 0x87: return 234; // Stantler
+		case 0x89: return 235; // Smeargle
+		case 0x8C: return 236; // Tyrogue
+		case 0x92: return 237; // Hitmontop
+		case 0x9C: return 238; // Smoochum
+		case 0x9F: return 239; // Elekid
+		case 0xA0: return 240; // Magby
+		case 0xA1: return 241; // Miltank
+		case 0xA2: return 242; // Blissey
+		case 0xAC: return 243; // Raikou
+		case 0xAE: return 244; // Entei
+		case 0xAF: return 245; // Suicune
+		case 0xB5: return 246; // Larvitar
+		case 0xB6: return 247; // Pupitar
+		case 0xB7: return 248; // Tyranitar
+		case 0xB8: return 249; // Lugia
+		case 0xBF: return 152; // Chikorita
+		case 0xC0: return 153; // Bayleef
+		case 0xC1: return 154; // Meganium
+		case 0xC2: return 155; // Cyndaquil
+		case 0xC3: return 156; // Quilava
+		case 0xC4: return 157; // Typhlosion
+		case 0xC5: return 158; // Totodile
+		case 0xC6: return 159; // Croconaw
+		case 0xC7: return 160; // Feraligatr
+		case 0xC8: return 161; // Sentret
+		case 0xC9: return 162; // Furret
+		case 0xCA: return 163; // Hoothoot
+		case 0xCB: return 164; // Noctowl
+		case 0xCC: return 165; // Ledyba
+		case 0xCD: return 166; // Ledian
+		case 0xCE: return 167; // Spinarak
+		case 0xCF: return 168; // Ariados
+		case 0xD0: return 169; // Crobat
+		case 0xD1: return 170; // Chinchou
+		case 0xD2: return 171; // Lanturn
+		case 0xD3: return 172; // Pichu
+		case 0xD4: return 173; // Cleffa
+		case 0xD5: return 174; // Igglybuff
+		case 0xD6: return 175; // Togepi
+		case 0xD7: return 176; // Togetic
+		case 0xD8: return 177; // Natu
+		case 0xD9: return 178; // Xatu
+		case 0xDA: return 179; // Mareep
+		case 0xDB: return 180; // Flaaffy
+		case 0xDC: return 181; // Ampharos
+		case 0xDD: return 182; // Bellossom
+		case 0xDE: return 183; // Marill
+		case 0xDF: return 184; // Azumarill
+		case 0xE0: return 185; // Sudowoodo
+		case 0xE1: return 186; // Politoed
+		case 0xE2: return 187; // Hoppip
+		case 0xE3: return 188; // Skiploom
+		case 0xE4: return 189; // Jumpluff
+		case 0xE5: return 190; // Aipom
+		case 0xE6: return 191; // Sunkern
+		case 0xE7: return 192; // Sunflora
+		case 0xE8: return 193; // Yanma
+		case 0xE9: return 194; // Wooper
+		case 0xEA: return 195; // Quagsire
+		case 0xEB: return 196; // Espeon
+		case 0xEC: return 197; // Umbreon
+		case 0xED: return 198; // Murkrow
+		case 0xEE: return 199; // Slowking
+		case 0xEF: return 200; // Misdreavus
+		case 0xF0: return 201; // Unown
+		case 0xF1: return 202; // Wobbuffet
+		case 0xF2: return 203; // Girafarig
+		case 0xF3: return 204; // Pineco
+		case 0xF4: return 205; // Forretress
+		case 0xF5: return 206; // Dunsparce
+		case 0xF6: return 207; // Gligar
+		case 0xF7: return 208; // Steelix
+		case 0xF8: return 209; // Snubbull
+		case 0xF9: return 210; // Granbull
+		case 0xFA: return 211; // Qwilfish
+		case 0xFB: return 251; // Celebi
+		default:   return 0;   // Empty / MissingNo
 	}
+}
+
+uint8_t pokedexGetIndex(uint8_t nationalDex)
+{
+	if (nationalDex == 0 || nationalDex > PKM_COUNT) return 0xFF;
+	for (uint16_t i = 0x01; i <= 0xFB; i++)
+	{
+		if (pokedexGetNational((uint8_t)i) == nationalDex)
+			return (uint8_t)i;
+	}
+	return 0xFF;
 }
 
 void pokedexAddOwned(uint8_t species)
 {
-	if (species > SPECIES_MISSINGNO && species <= SPECIES_MEW)
+	uint8_t maxSpecies = (vgame >= POKEMON_GOLD ? SPECIES_CELEBI : SPECIES_MEW);
+	if (species > SPECIES_MISSINGNO && species <= maxSpecies)
 	{
 		setOffsetBit(saveGetPokedexOwned(), 0, species-1, true);
 	}
-	// else setOffsetBit(saveGetPokedexOwned(), 0, SPECIES_MEW, true);
 }
 
 void pokedexAddSeen(uint8_t species)
 {
-	if (species > SPECIES_MISSINGNO && species <= SPECIES_MEW)
+	uint8_t maxSpecies = (vgame >= POKEMON_GOLD ? SPECIES_CELEBI : SPECIES_MEW);
+	if (species > SPECIES_MISSINGNO && species <= maxSpecies)
 	{
 		setOffsetBit(saveGetPokedexSeen(), 0, species-1, true);
 	}
-	// else setOffsetBit(saveGetPokedexSeen(), 0, SPECIES_MEW, true);
 }
 
 bool pokedexIsFromTPP(uint8_t species, const char8_t* nickname, const char8_t* otname)

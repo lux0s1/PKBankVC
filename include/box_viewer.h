@@ -7,3 +7,5 @@ void boxViewerInitialize(void);
 void boxViewerUpdate(void);
 
 void boxViewerDraw(void);
+
+bool boxViewerWantsExit(void);
