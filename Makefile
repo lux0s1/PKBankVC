@@ -91,7 +91,11 @@ $(BUILD)/%.h $(GFXBUILD)/%.t3x: %.t3s | $(BUILD) $(GFXBUILD)
 $(BUILD) $(GFXBUILD):
 	@mkdir -p $@
 
-cia: all
+$(CIA_BANNER): assets/banner.png assets/banner_shorter.cwav
+	@bannertool makebanner -i $< -ca assets/banner_shorter.cwav -o $@
+	@echo built ... $@
+
+cia: all $(CIA_BANNER)
 	@makerom -f cia -target t -exefslogo -o $(TARGET).cia -elf $(TARGET).elf -rsf $(CIA_RSF) -banner $(CIA_BANNER) -icon $(TARGET).smdh -DAPP_ROMFS="$(ROMFS)"
 	@echo built ... $(TARGET).cia
 
