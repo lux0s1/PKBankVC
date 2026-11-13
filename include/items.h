@@ -31,6 +31,8 @@ typedef struct
 	uint8_t dexSeen[32];
 	uint8_t dexOwned[32];
 	uint8_t dexOrigin[252];
+	uint8_t mysteryGiftClaimed;
+	uint8_t reserved[3];
 } BankStoreData;
 
 extern const ItemInfo items_table[256];
@@ -45,6 +47,9 @@ bool bankStoreIsOwned(uint8_t nationalDex);
 bool bankStoreIsSeen(uint8_t nationalDex);
 uint16_t bankStoreCountKanto(void);
 uint16_t bankStoreCountNational(void);
+bool bankStoreHas150Kanto(void);
+bool bankStoreIsMewClaimed(void);
+int16_t bankStoreClaimMewGF(void);
 
 const char8_t* itemGetName(uint8_t itemId, bool isGen1);
 uint8_t itemToGen2(uint8_t itemId, bool isGen1);

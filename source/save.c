@@ -5,6 +5,7 @@
 #include "personal.h"
 #include "fs.h"
 #include "items.h"
+#include "data.h"
 
 #include <3ds/result.h>
 #include <math.h>
@@ -1336,4 +1337,97 @@ void saveSetPkmLevel(SAV_Pokemon* pkm, uint8_t newLevel)
 	if (exp > 1000000) exp = 1000000;
 	pkm->experience = exp;
 	saveRecalculateStats(pkm);
+}
+
+void saveCommitBank(void)
+{
+	mkdir(BASE_FOLDER, 0700);
+	mkdir(BANK_FOLDER, 0700);
+	bankWriteData(bank, &sbank);
+	bankWriteFile(bank, BANK_FOLDER BANKGB_FILE);
+	bankStoreSave();
+}
+
+uint8_t saveGetTradeEvolveTarget(const SAV_Pokemon* pkm, bool inGen1)
+{
+	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return 0;
+
+	// Trade evolutions without item (Gen 1 & Gen 2)
+	switch (pkm->nationalDex)
+	{
+		case SPECIES_KADABRA: return SPECIES_ALAKAZAM; // 64 -> 65
+		case SPECIES_MACHOKE: return SPECIES_MACHAMP;  // 67 -> 68
+		case SPECIES_GRAVELER: return SPECIES_GOLEM;   // 75 -> 76
+		case SPECIES_HAUNTER: return SPECIES_GENGAR;   // 93 -> 94
+		default: break;
+	}
+
+	// Item trade evolutions (Gen 2: in Bank or Gen 2 cartridge)
+	if (!inGen1)
+	{
+		if (pkm->nationalDex == SPECIES_POLIWHIRL && pkm->heldItem == 82) return 186; // Politoed
+		if (pkm->nationalDex == SPECIES_SLOWPOKE && pkm->heldItem == 82) return 199;  // Slowking
+		if (pkm->nationalDex == SPECIES_ONIX && pkm->heldItem == 143) return 208;      // Steelix
+		if (pkm->nationalDex == SPECIES_SCYTHER && pkm->heldItem == 143) return 212;   // Scizor
+		if (pkm->nationalDex == SPECIES_SEADRA && pkm->heldItem == 150) return 230;    // Kingdra
+		if (pkm->nationalDex == SPECIES_PORYGON && pkm->heldItem == 171) return 233;   // Porygon2
+	}
+
+	return 0;
+}
+
+bool saveCanTradeEvolve(const SAV_Pokemon* pkm, bool inGen1)
+{
+	return saveGetTradeEvolveTarget(pkm, inGen1) != 0;
+}
+
+bool saveTradeEvolve(SAV_Pokemon* pkm, bool inGen1)
+{
+	uint8_t target = saveGetTradeEvolveTarget(pkm, inGen1);
+	if (target == 0) return false;
+
+	uint8_t oldDex = pkm->nationalDex;
+	const char8_t* oldDefaultName = dataSpecies(oldDex);
+
+	bool hasDefaultName = true;
+	for (uint8_t i = 0; i < 11; i++)
+	{
+		if (pkm->nameNK[i] != oldDefaultName[i])
+		{
+			hasDefaultName = false;
+			break;
+		}
+		if (oldDefaultName[i] == 0x50) break;
+	}
+
+	pkm->nationalDex = target;
+	pkm->species = pokedexGetIndex(target);
+	pkm->speciesIndex = pkm->species;
+
+	if (hasDefaultName)
+	{
+		const char8_t* newName = dataSpecies(target);
+		memcpy(pkm->nameNK, newName, 10);
+		pkm->nameNK[10] = 0x50;
+	}
+
+	// Consume held item if item-based trade evolution
+	if (!inGen1 && (oldDex == SPECIES_POLIWHIRL || oldDex == SPECIES_SLOWPOKE ||
+	               oldDex == SPECIES_ONIX || oldDex == SPECIES_SCYTHER ||
+	               oldDex == SPECIES_SEADRA || oldDex == SPECIES_PORYGON))
+	{
+		pkm->heldItem = 0;
+	}
+
+	saveRecalculateStats(pkm);
+	pkm->moved = true;
+
+	bankStoreRecordSpecies(target, vgame);
+	if (!inGen1 || target <= 151)
+	{
+		pokedexAddOwned(target);
+		pokedexAddSeen(target);
+	}
+
+	return true;
 }

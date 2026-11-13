@@ -12,4 +12,4 @@
  *
  * e.g: 2.1.0-beta-a (020100BA)
  */
-#define VERSION 0x010001AD
+#define VERSION 0x010100A0

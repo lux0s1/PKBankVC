@@ -116,6 +116,106 @@ static int16_t touchHoldSourceCol = -1;
 
 static uint8_t editorRow = 0;
 static uint8_t editorCol = 0;
+static uint8_t editorPage = 0; // 0: Stats/Item/Trade, 1: Moves
+static uint8_t editorMoveSlot = 0;
+
+static bool batchMode = false;
+static bool batchSelected[POKEMON_LIST_MAX_COUNT];
+static uint8_t batchSourceBox = 0;
+static bool batchSourceInBank = false;
+
+static uint8_t getBatchSelectedCount(void)
+{
+	uint8_t count = 0;
+	for (uint8_t i = 0; i < POKEMON_LIST_MAX_COUNT; i++)
+		if (batchSelected[i]) count++;
+	return count;
+}
+
+static void clearBatchSelection(void)
+{
+	batchMode = false;
+	memset(batchSelected, 0, sizeof(batchSelected));
+}
+
+static void executeBatchMove(void)
+{
+	uint8_t selCount = getBatchSelectedCount();
+	if (selCount == 0) return;
+
+	if (cursor.box->inBank == batchSourceInBank && cursor.box->box == batchSourceBox)
+	{
+		showBoxAlert("DESTINO INVALIDO", "EL DESTINO ES LA MISMA CAJA");
+		return;
+	}
+
+	uint8_t freeSlots = 0;
+	for (uint8_t i = 0; i < cursor.box->vBox->capacity; i++)
+	{
+		if (saveIsPkmEmpty(saveGetPkm(cursor.box->box, i, cursor.box->inBank)))
+			freeSlots++;
+	}
+
+	if (freeSlots < selCount)
+	{
+		showBoxAlert("ESPACIO INSUFICIENTE", "LA CAJA DESTINO NO TIENE HUECOS");
+		return;
+	}
+
+	// Legality validation if target is Gen 1 cartridge
+	if (!cursor.box->inBank && vgame <= POKEMON_YELLOW)
+	{
+		for (uint8_t i = 0; i < POKEMON_LIST_MAX_COUNT; i++)
+		{
+			if (!batchSelected[i]) continue;
+			SAV_Pokemon* p = saveGetPkm(batchSourceBox, i, batchSourceInBank);
+			if (!p || saveIsPkmEmpty(p)) continue;
+			if (p->nationalDex > 151 || p->heldItem != 0 || p->isEgg)
+			{
+				showBoxAlert("ACCION BLOQUEADA", "HAY POKEMON INCOMPATIBLES CON GEN 1");
+				return;
+			}
+			for (uint8_t m = 0; m < 4; m++)
+			{
+				if (p->moves[m] > 165)
+				{
+					showBoxAlert("ACCION BLOQUEADA", "MOVIMIENTO INCOMPATIBLE CON GEN 1");
+					return;
+				}
+			}
+		}
+	}
+
+	uint8_t destSlot = 0;
+	for (uint8_t i = 0; i < POKEMON_LIST_MAX_COUNT; i++)
+	{
+		if (!batchSelected[i]) continue;
+		SAV_Pokemon* srcPkm = saveGetPkm(batchSourceBox, i, batchSourceInBank);
+		if (!srcPkm || saveIsPkmEmpty(srcPkm)) continue;
+
+		while (destSlot < cursor.box->vBox->capacity && !saveIsPkmEmpty(saveGetPkm(cursor.box->box, destSlot, cursor.box->inBank)))
+			destSlot++;
+		if (destSlot >= cursor.box->vBox->capacity) break;
+
+		SAV_Pokemon* dstPkm = saveGetPkm(cursor.box->box, destSlot, cursor.box->inBank);
+		saveMovePkm(dstPkm, srcPkm, batchSourceInBank, cursor.box->inBank);
+
+		if (cursor.box->inBank)
+		{
+			bankStoreRecordSpecies(dstPkm->nationalDex, vgame);
+		}
+		else
+		{
+			pokedexAddOwned(dstPkm->nationalDex);
+			pokedexAddSeen(dstPkm->nationalDex);
+		}
+		destSlot++;
+	}
+
+	clearBatchSelection();
+	showBoxAlert("MOVIMIENTO EN LOTE", "TRANSFERENCIA COMPLETADA");
+}
+
 static void boxViewerDrawAlert(void);
 static void pkmEditorUpdate(void);
 static void pkmEditorDrawBottom(void);
@@ -193,6 +293,8 @@ void boxViewerInitialize(void)
 	touchHoldSourcePkm = NULL;
 	editorRow = 0;
 	editorCol = 0;
+	editorPage = 0;
+	clearBatchSelection();
 	boxAlertActive = false;
 	bagPocket = 0;
 	bagInStore = false;
@@ -870,6 +972,33 @@ static void dexViewerUpdate(void)
 		return;
 	}
 
+	if (bankStoreHas150Kanto() && !bankStoreIsMewClaimed())
+	{
+		bool claimPressed = (ks.down & KEY_START);
+		if (ks.down & KEY_TOUCH)
+		{
+			hidTouchRead(&ks.touch);
+			if (touchWithin(ks.touch.px, ks.touch.py, 24, 196, 272, 28))
+				claimPressed = true;
+		}
+
+		if (claimPressed)
+		{
+			int16_t boxNum = bankStoreClaimMewGF();
+			if (boxNum > 0)
+			{
+				char alertBuf[36];
+				snprintf(alertBuf, sizeof(alertBuf), "MEW DE EVENTO GF EN CAJA %d", (int)boxNum);
+				showBoxAlert("REGALO MISTERIOSO!", alertBuf);
+			}
+			else
+			{
+				showBoxAlert("BANCO LLENO", "LIBERA ESPACIO PARA MEW");
+			}
+			return;
+		}
+	}
+
 	if (ks.down & KEY_B)
 	{
 		currentMode = VIEW_MODE_BOXES;
@@ -1155,11 +1284,21 @@ static void dexViewerDrawBottom(void)
 		fontDrawString8(mapX + 72, mapY + 4, unkMap);
 	}
 
-	// Bottom Area Name panel
-	renderDrawRect(24, 196, 272, 28, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(24, 196, 32, 2);
-	fontConvertString(buf, owned ? areaName : "AREA DESCONOCIDA");
-	fontDrawString8(40, 206, buf);
+	// Bottom Area Name panel (or Mystery Gift button if available)
+	if (bankStoreHas150Kanto() && !bankStoreIsMewClaimed())
+	{
+		renderDrawRect(24, 196, 272, 28, RENDER_RGBA(0xFF, 0xD0, 0x30, 0xFF));
+		gfxDrawPanel(24, 196, 32, 2);
+		fontConvertString(buf, "START/TOCAR: RECLAMAR MEW GF");
+		fontDrawString8(34, 206, buf);
+	}
+	else
+	{
+		renderDrawRect(24, 196, 272, 28, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		gfxDrawPanel(24, 196, 32, 2);
+		fontConvertString(buf, owned ? areaName : "AREA DESCONOCIDA");
+		fontDrawString8(40, 206, buf);
+	}
 }
 
 void boxViewerUpdate(void)
@@ -1295,12 +1434,35 @@ void boxViewerUpdate(void)
 	{
 		if (ks.down & KEY_A && !cursor.isPkmDragged)
 		{
-			boxSelectMovePokemon();
+			if (batchMode)
+			{
+				if (cursor.box->inBank == batchSourceInBank && cursor.box->box == batchSourceBox)
+				{
+					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+						batchSelected[cursor.box->slot] = !batchSelected[cursor.box->slot];
+				}
+				else
+				{
+					executeBatchMove();
+				}
+			}
+			else
+			{
+				boxSelectMovePokemon();
+			}
 		}
 
 		if (ks.down & KEY_B)
 		{
-			boxCancelMovePokemon();
+			if (batchMode)
+			{
+				clearBatchSelection();
+				showBoxAlert("MODO MULTI CANCELADO", "SELECCION DESMARCADA");
+			}
+			else
+			{
+				boxCancelMovePokemon();
+			}
 		}
 
 		if (ks.down & KEY_ZL)
@@ -1330,34 +1492,66 @@ void boxViewerUpdate(void)
 		// Bottom shortcut bar touch handling:
 		if (touchWithin(px, py, 8, 200, 304, 32))
 		{
-			if (px < 102)
+			if (!batchMode)
 			{
-				bagCatalogMode = false;
-				bagDeleteConfirm = false;
-				currentMode = VIEW_MODE_BAG;
-				return;
-			}
-			else if (px < 216)
-			{
-				if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+				if (px < 80)
 				{
-					editorRow = 0;
-					editorCol = 0;
-					currentMode = VIEW_MODE_PKM_EDIT;
+					bagCatalogMode = false;
+					bagDeleteConfirm = false;
+					currentMode = VIEW_MODE_BAG;
+					return;
+				}
+				else if (px <= 154)
+				{
+					batchMode = true;
+					batchSourceBox = cursor.box->box;
+					batchSourceInBank = cursor.box->inBank;
+					memset(batchSelected, 0, sizeof(batchSelected));
+					showBoxAlert("MODO MULTI ACTIVO", "TOCA POKEMON PARA MARCARLOS");
+					return;
+				}
+				else if (px <= 232)
+				{
+					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+					{
+						editorRow = 0;
+						editorCol = 0;
+						editorPage = 0;
+						currentMode = VIEW_MODE_PKM_EDIT;
+						return;
+					}
+				}
+				else
+				{
+					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+					{
+						dexCursor = cursor.vPkm->nationalDex;
+						if (dexCursor < 1 || dexCursor > 251) dexCursor = 1;
+						dexScroll = (dexCursor > 4 ? dexCursor - 4 : 0);
+						if (dexScroll > 251 - 7) dexScroll = 251 - 7;
+					}
+					currentMode = VIEW_MODE_POKEDEX;
 					return;
 				}
 			}
 			else
 			{
-				if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+				if (px < 88)
 				{
-					dexCursor = cursor.vPkm->nationalDex;
-					if (dexCursor < 1 || dexCursor > 251) dexCursor = 1;
-					dexScroll = (dexCursor > 4 ? dexCursor - 4 : 0);
-					if (dexScroll > 251 - 7) dexScroll = 251 - 7;
+					clearBatchSelection();
+					showBoxAlert("MODO MULTI CANCELADO", "SELECCION DESMARCADA");
+					return;
 				}
-				currentMode = VIEW_MODE_POKEDEX;
-				return;
+				else if (px <= 228)
+				{
+					executeBatchMove();
+					return;
+				}
+				else
+				{
+					memset(batchSelected, 0, sizeof(batchSelected));
+					return;
+				}
 			}
 		}
 
@@ -1374,6 +1568,23 @@ void boxViewerUpdate(void)
 
 		if (marginLeft > 0)
 		{
+			bool tappedBank = (marginLeft == 184);
+			if (batchMode && (tappedBank == batchSourceInBank) && (cursor.box->box == batchSourceBox))
+			{
+				uint8_t tRow = (py - 40) / 24;
+				uint8_t tCol = (px - marginLeft) / 32;
+				uint8_t tSlot = tRow * 4 + tCol;
+				if (tSlot < cursor.box->vBox->capacity)
+				{
+					SAV_Pokemon* p = saveGetPkm(batchSourceBox, tSlot, batchSourceInBank);
+					if (p && !saveIsPkmEmpty(p))
+					{
+						batchSelected[tSlot] = !batchSelected[tSlot];
+						return;
+					}
+				}
+			}
+
 			cursor.box = (marginLeft == 8 ? &cursor.pc : &cursor.bk);
 			uint16_t oldRow = cursor.box->row;
 			uint16_t oldCol = cursor.box->col;
@@ -1656,22 +1867,53 @@ static void boxViewerDrawBottom(void)
 	boxDrawBox(&cursor.pc, 0, 0);
 	boxDrawBox(&cursor.bk, 176, 0);
 
-	// Bottom Shortcut Bar below both 5x4 boxes: 3 crisp touchable buttons
+	// Bottom Shortcut Bar below both 5x4 boxes
 	char8_t buf[32];
 	renderDrawRect(8, 200, 304, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 	gfxDrawPanel(8, 200, 36, 2);
 
-	renderDrawRect(102, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-	renderDrawRect(216, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+	if (!batchMode)
+	{
+		renderDrawRect(80, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+		renderDrawRect(154, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+		renderDrawRect(232, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
 
-	fontConvertString(buf, "X: MOCHILA");
-	fontDrawString8(16, 212, buf);
+		fontConvertString(buf, "X:MOCHILA");
+		fontDrawString8(12, 212, buf);
 
-	fontConvertString(buf, "START: EDITAR");
-	fontDrawString8(108, 212, buf);
+		// Multi button in slight teal highlight
+		renderDrawRect(83, 202, 70, 28, RENDER_RGBA(0x28, 0x78, 0x60, 0xFF));
+		fontSetWhite(true);
+		fontConvertString(buf, "MULTI");
+		fontDrawString8(98, 212, buf);
+		fontSetWhite(false);
 
-	fontConvertString(buf, "Y: POKEDEX");
-	fontDrawString8(224, 212, buf);
+		fontConvertString(buf, "START:EDIT");
+		fontDrawString8(158, 212, buf);
+
+		fontConvertString(buf, "Y:DEX");
+		fontDrawString8(244, 212, buf);
+	}
+	else
+	{
+		renderDrawRect(88, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+		renderDrawRect(230, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+
+		fontConvertString(buf, "CANCELAR");
+		fontDrawString8(14, 212, buf);
+
+		// Batch Action button in bright green with count
+		renderDrawRect(90, 202, 138, 28, RENDER_RGBA(0x28, 0x90, 0x48, 0xFF));
+		fontSetWhite(true);
+		char batchStr[32];
+		snprintf(batchStr, sizeof(batchStr), "MOVER (%d)", (int)getBatchSelectedCount());
+		fontConvertString(buf, batchStr);
+		fontDrawString8(118, 212, buf);
+		fontSetWhite(false);
+
+		fontConvertString(buf, "LIMPIAR");
+		fontDrawString8(244, 212, buf);
+	}
 
 	if (cursor.sPkm)
 	{
@@ -1758,8 +2000,17 @@ static void boxDrawBox(CursorInbox* cursorin, int16_t x, int16_t y)
 
 	for (uint8_t i = 0; i < cursorin->vBox->capacity; i++)
 	{
+		int16_t px = x + 20 + 32 * (i % 4);
+		int16_t py = y + 44 + 24 * (i / 4);
+
+		if (batchMode && (cursorin->inBank == batchSourceInBank) && (cursorin->box == batchSourceBox) && batchSelected[i])
+		{
+			renderDrawRect(px - 3, py - 3, 24, 24, RENDER_RGBA(0x28, 0xC8, 0x40, 0xFF));
+			renderDrawRect(px - 2, py - 2, 22, 22, RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+		}
+
 		if (&cursorin->vBox->slots[i] != cursor.sPkm)
-			boxDrawPokemon(&cursorin->vBox->slots[i], x + 20 + 32 * (i % 4), y + 44 + 24 * (i / 4));
+			boxDrawPokemon(&cursorin->vBox->slots[i], px, py);
 	}
 
 	if (!cursor.isPkmDragged && cursorin == cursor.box)
@@ -1874,9 +2125,22 @@ static void drawTwoDigit(int16_t x, int16_t y, uint8_t v)
 
 static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t* ry, int16_t* rw, int16_t* rh, const SAV_Pokemon* pkm, bool canHold)
 {
+	if (editorPage == 1) // Moves Editor Page
+	{
+		if (row < 4)
+		{
+			*rx = 12; *ry = 46 + row * 35; *rw = 296; *rh = 31;
+		}
+		else
+		{
+			*rx = 14; *ry = 196; *rw = 292; *rh = 28;
+		}
+		return;
+	}
+
 	if (row == 0) // Top Row: Shiny, Nivel, Max DV, Max EV
 	{
-		*ry = 12; *rh = 20;
+		*ry = 28; *rh = 18;
 		if (col == 0) { *rx = 12; *rw = 84; }
 		else if (col == 1) { *rx = 98; *rw = 96; }
 		else if (col == 2) { *rx = 198; *rw = 52; }
@@ -1884,18 +2148,18 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 	}
 	else if (row >= 1 && row <= 4) // Stats: ATAQ, DEFE, VELO, ESPE
 	{
-		*ry = 48 + (row - 1) * 23; *rh = 21;
+		*ry = 60 + (row - 1) * 20; *rh = 18;
 		if (col == 0) { *rx = 52; *rw = 68; }
 		else { *rx = 182; *rw = 118; }
 	}
 	else if (row == 5) // PS: EV only
 	{
-		*ry = 140; *rh = 21;
+		*ry = 140; *rh = 18;
 		*rx = 182; *rw = 118;
 	}
-	else if (row == 6) // Item / Egg
+	else if (row == 6) // Item / Egg / Trade Evolution
 	{
-		*ry = 166; *rh = 25;
+		*ry = 162; *rh = 24;
 		if (pkm->isEgg)
 		{
 			*rx = 14; *rw = 292;
@@ -1912,7 +2176,7 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 	}
 	else // Row 7: Save & Exit
 	{
-		*rx = 14; *ry = 196; *rw = 292; *rh = 28;
+		*rx = 14; *ry = 194; *rw = 292; *rh = 28;
 	}
 }
 
@@ -1932,8 +2196,130 @@ static void pkmEditorUpdate(void)
 		return;
 	}
 
-	static const uint8_t rowStatIdx[4] = { STAT_ATK, STAT_DEF, STAT_SPE, STAT_SPC };
+	// Page tab switching: L / R
+	if (ks.down & KEY_L)
+	{
+		editorPage = (editorPage == 0) ? 1 : 0;
+		return;
+	}
+	if (ks.down & KEY_R)
+	{
+		editorPage = (editorPage == 1) ? 0 : 1;
+		return;
+	}
+
+	bool inGen1 = (vgame < POKEMON_GOLD && !cursor.box->inBank);
 	bool canHold = (cursor.box->inBank || vgame >= POKEMON_GOLD);
+	uint8_t maxMove = (cursor.box->inBank || vgame >= POKEMON_GOLD) ? 251 : 165;
+
+	// Touch Controls (Tabs Header: y=6..26)
+	if (ks.down & KEY_TOUCH)
+	{
+		hidTouchRead(&ks.touch);
+		uint16_t px = ks.touch.px;
+		uint16_t py = ks.touch.py;
+
+		if (py >= 6 && py <= 26)
+		{
+			if (px >= 10 && px <= 155) { editorPage = 0; return; }
+			if (px >= 165 && px <= 310) { editorPage = 1; return; }
+		}
+	}
+
+	if (editorPage == 1) // Moves Editor Page
+	{
+		if (ks.down & KEY_UP)
+		{
+			if (editorMoveSlot > 0) editorMoveSlot--;
+			else editorMoveSlot = 3;
+			return;
+		}
+		if (ks.down & KEY_DOWN)
+		{
+			if (editorMoveSlot < 3) editorMoveSlot++;
+			else editorMoveSlot = 0;
+			return;
+		}
+
+		if (ks.down & KEY_LEFT)
+		{
+			uint8_t m = pkm->moves[editorMoveSlot];
+			if (m > 1) m--;
+			else m = maxMove;
+			pkm->moves[editorMoveSlot] = m;
+			pkm->PPs[editorMoveSlot] = PersonalMove(m)->PP;
+			return;
+		}
+
+		if (ks.down & (KEY_RIGHT | KEY_A))
+		{
+			uint8_t m = pkm->moves[editorMoveSlot];
+			if (m < maxMove) m++;
+			else m = 1;
+			pkm->moves[editorMoveSlot] = m;
+			pkm->PPs[editorMoveSlot] = PersonalMove(m)->PP;
+			return;
+		}
+
+		if (ks.down & KEY_X)
+		{
+			pkm->moves[editorMoveSlot] = 0;
+			pkm->PPs[editorMoveSlot] = 0;
+			return;
+		}
+
+		if (ks.down & KEY_TOUCH)
+		{
+			uint16_t px = ks.touch.px;
+			uint16_t py = ks.touch.py;
+
+			for (uint8_t s = 0; s < 4; s++)
+			{
+				int16_t my = 46 + s * 35;
+				if (py >= my && py <= my + 31)
+				{
+					editorMoveSlot = s;
+					if (px >= 28 && px <= 54) // Left button (<)
+					{
+						uint8_t m = pkm->moves[s];
+						if (m > 1) m--;
+						else m = maxMove;
+						pkm->moves[s] = m;
+						pkm->PPs[s] = PersonalMove(m)->PP;
+						return;
+					}
+					if (px >= 184 && px <= 210) // Right button (>)
+					{
+						uint8_t m = pkm->moves[s];
+						if (m < maxMove) m++;
+						else m = 1;
+						pkm->moves[s] = m;
+						pkm->PPs[s] = PersonalMove(m)->PP;
+						return;
+					}
+					if (px >= 262 && px <= 306) // BOR button
+					{
+						pkm->moves[s] = 0;
+						pkm->PPs[s] = 0;
+						return;
+					}
+					return;
+				}
+			}
+
+			// Exit button (y=196..228, px=14..306)
+			if (py >= 196 && py <= 228 && px >= 14 && px <= 306)
+			{
+				saveRecalculateStats(pkm);
+				currentMode = VIEW_MODE_BOXES;
+				return;
+			}
+		}
+		return;
+	}
+
+	// Page 0: Stats, Item, Trade Evolution
+	static const uint8_t rowStatIdx[4] = { STAT_ATK, STAT_DEF, STAT_SPE, STAT_SPC };
 
 	if (ks.down & KEY_UP)
 	{
@@ -2033,8 +2419,8 @@ static void pkmEditorUpdate(void)
 		return;
 	}
 
-	// Action buttons: A / R (Increment / Execute), Y / L (Decrement)
-	if (ks.down & (KEY_A | KEY_R))
+	// Action button A
+	if (ks.down & KEY_A)
 	{
 		if (editorRow == 0)
 		{
@@ -2074,6 +2460,13 @@ static void pkmEditorUpdate(void)
 		}
 		else if (editorRow == 6)
 		{
+			if (saveCanTradeEvolve(pkm, inGen1))
+			{
+				if (saveTradeEvolve(pkm, inGen1))
+					showBoxAlert("¡EVOLUCION CON EXITO!", "SIMULADO INTERCAMBIO");
+				return;
+			}
+
 			if (pkm->isEgg)
 			{
 				pkm->isEgg = false;
@@ -2102,7 +2495,7 @@ static void pkmEditorUpdate(void)
 		return;
 	}
 
-	if (ks.down & (KEY_Y | KEY_L))
+	if (ks.down & KEY_Y)
 	{
 		if (editorRow == 0)
 		{
@@ -2150,15 +2543,14 @@ static void pkmEditorUpdate(void)
 		return;
 	}
 
-	// Touch Controls
+	// Touch Controls (Page 0)
 	if (ks.down & KEY_TOUCH)
 	{
-		hidTouchRead(&ks.touch);
 		uint16_t px = ks.touch.px;
 		uint16_t py = ks.touch.py;
 
-		// Top Row: y=10..34
-		if (py >= 10 && py <= 34)
+		// Top Row: y=28..48
+		if (py >= 28 && py <= 48)
 		{
 			if (px >= 12 && px <= 96)
 			{
@@ -2194,11 +2586,11 @@ static void pkmEditorUpdate(void)
 			}
 		}
 
-	// Stat Rows 1..4: ATAQ, DEFE, VELO, ESPE
+		// Stat Rows 1..4: ATAQ, DEFE, VELO, ESPE (y=60 + r * 20)
 		for (uint8_t r = 0; r < 4; r++)
 		{
-			int16_t ry = 48 + r * 23;
-			if (py >= ry && py <= ry + 21)
+			int16_t ry = 60 + r * 20;
+			if (py >= ry && py <= ry + 18)
 			{
 				uint8_t st = rowStatIdx[r];
 				if (px >= 50 && px <= 76)
@@ -2208,98 +2600,106 @@ static void pkmEditorUpdate(void)
 					saveRecalculateStats(pkm);
 					return;
 				}
-			if (px >= 96 && px <= 122)
-			{
-				editorRow = r + 1; editorCol = 0;
-				if (pkm->IVs[st] < 15) pkm->IVs[st]++;
-				saveRecalculateStats(pkm);
-				return;
+				if (px >= 96 && px <= 122)
+				{
+					editorRow = r + 1; editorCol = 0;
+					if (pkm->IVs[st] < 15) pkm->IVs[st]++;
+					saveRecalculateStats(pkm);
+					return;
+				}
+				if (px >= 180 && px <= 240)
+				{
+					editorRow = r + 1; editorCol = 1;
+					if (pkm->EVs[st] >= 5000) pkm->EVs[st] -= 5000;
+					else pkm->EVs[st] = 0;
+					saveRecalculateStats(pkm);
+					return;
+				}
+				if (px >= 242 && px <= 302)
+				{
+					editorRow = r + 1; editorCol = 1;
+					if (pkm->EVs[st] <= 65535 - 5000) pkm->EVs[st] += 5000;
+					else pkm->EVs[st] = 65535;
+					saveRecalculateStats(pkm);
+					return;
+				}
 			}
+		}
+
+		// Row 5: PS (y=140..158)
+		if (py >= 140 && py <= 158)
+		{
 			if (px >= 180 && px <= 240)
 			{
-				editorRow = r + 1; editorCol = 1;
-				if (pkm->EVs[st] >= 5000) pkm->EVs[st] -= 5000;
-				else pkm->EVs[st] = 0;
+				editorRow = 5; editorCol = 0;
+				if (pkm->EVs[STAT_HP] >= 5000) pkm->EVs[STAT_HP] -= 5000;
+				else pkm->EVs[STAT_HP] = 0;
 				saveRecalculateStats(pkm);
 				return;
 			}
 			if (px >= 242 && px <= 302)
 			{
-				editorRow = r + 1; editorCol = 1;
-				if (pkm->EVs[st] <= 65535 - 5000) pkm->EVs[st] += 5000;
-				else pkm->EVs[st] = 65535;
+				editorRow = 5; editorCol = 0;
+				if (pkm->EVs[STAT_HP] <= 65535 - 5000) pkm->EVs[STAT_HP] += 5000;
+				else pkm->EVs[STAT_HP] = 65535;
 				saveRecalculateStats(pkm);
 				return;
 			}
 		}
-	}
 
-	// Row 5: PS (y=140..161)
-	if (py >= 140 && py <= 161)
-	{
-		if (px >= 180 && px <= 240)
+		// Row 6: Item / Egg / Trade Evo (y=162..188)
+		if (py >= 162 && py <= 188)
 		{
-			editorRow = 5; editorCol = 0;
-			if (pkm->EVs[STAT_HP] >= 5000) pkm->EVs[STAT_HP] -= 5000;
-			else pkm->EVs[STAT_HP] = 0;
-			saveRecalculateStats(pkm);
-			return;
-		}
-		if (px >= 242 && px <= 302)
-		{
-			editorRow = 5; editorCol = 0;
-			if (pkm->EVs[STAT_HP] <= 65535 - 5000) pkm->EVs[STAT_HP] += 5000;
-			else pkm->EVs[STAT_HP] = 65535;
-			saveRecalculateStats(pkm);
-			return;
-		}
-	}
-
-	// Row 6: Item / Egg (y=165..194)
-	if (py >= 165 && py <= 194)
-	{
-		if (pkm->isEgg)
-		{
-			editorRow = 6; editorCol = 0;
-			pkm->isEgg = false;
-			saveSetPkmLevel(pkm, 5);
-			showBoxAlert("HUEVO ECLOSIONADO", "POKEMON A NIVEL 5");
-			return;
-		}
-		else if (canHold)
-		{
-			if (px >= 44 && px <= 70)
+			if (saveCanTradeEvolve(pkm, inGen1))
 			{
 				editorRow = 6; editorCol = 0;
-				if (pkm->heldItem > 0) pkm->heldItem--;
-				else pkm->heldItem = 255;
+				if (saveTradeEvolve(pkm, inGen1))
+					showBoxAlert("¡EVOLUCION CON EXITO!", "SIMULADO INTERCAMBIO");
 				return;
 			}
-			if (px >= 174 && px <= 200)
+
+			if (pkm->isEgg)
 			{
 				editorRow = 6; editorCol = 0;
-				if (pkm->heldItem < 255) pkm->heldItem++;
-				else pkm->heldItem = 0;
+				pkm->isEgg = false;
+				saveSetPkmLevel(pkm, 5);
+				showBoxAlert("HUEVO ECLOSIONADO", "POKEMON A NIVEL 5");
 				return;
 			}
-			if (px >= 204 && px <= 302)
+			else if (canHold)
 			{
-				editorRow = 6; editorCol = 1;
-				pkm->heldItem = 0;
-				return;
+				if (px >= 44 && px <= 70)
+				{
+					editorRow = 6; editorCol = 0;
+					if (pkm->heldItem > 0) pkm->heldItem--;
+					else pkm->heldItem = 255;
+					return;
+				}
+				if (px >= 174 && px <= 200)
+				{
+					editorRow = 6; editorCol = 0;
+					if (pkm->heldItem < 255) pkm->heldItem++;
+					else pkm->heldItem = 0;
+					return;
+				}
+				if (px >= 204 && px <= 302)
+				{
+					editorRow = 6; editorCol = 1;
+					pkm->heldItem = 0;
+					return;
+				}
 			}
 		}
-	}
 
-	// Row 7: Save & Exit (y=196..228, px=14..306)
-	if (py >= 196 && py <= 228 && px >= 14 && px <= 306)
-	{
-		editorRow = 7; editorCol = 0;
-		saveRecalculateStats(pkm);
-		currentMode = VIEW_MODE_BOXES;
-		return;
+		// Row 7: Save & Exit (y=194..224, px=14..306)
+		if (py >= 194 && py <= 224 && px >= 14 && px <= 306)
+		{
+			editorRow = 7; editorCol = 0;
+			saveRecalculateStats(pkm);
+			currentMode = VIEW_MODE_BOXES;
+			return;
+		}
 	}
-}
 }
 
 static void pkmEditorDrawBottom(void)
@@ -2307,150 +2707,254 @@ static void pkmEditorDrawBottom(void)
 	SAV_Pokemon* pkm = cursor.vPkm;
 	renderDrawRect(0, 0, 320, 240, getGameThemeBgColor());
 
-	// Outer frame: single outer panel with authentic Game Boy border
+	// Outer frame
 	renderDrawRect(4, 4, 312, 232, RENDER_RGBA(0xF4, 0xF5, 0xF8, 0xFF));
 	gfxDrawPanel(4, 4, 37, 27);
 
 	char8_t buf[36];
-	bool isShiny = saveIsPkmShiny(pkm);
+	bool inGen1 = (vgame < POKEMON_GOLD && !cursor.box->inBank);
 	bool canHold = (cursor.box->inBank || vgame >= POKEMON_GOLD);
 
-	// Top Row: Shiny, Nivel, Max DV, Max EV
-	// Shiny button
-	renderDrawRect(12, 12, 84, 20, isShiny ? RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-	gfxDrawShinyStarSmall(15, 18);
+	// Tabs Header (y=6..26)
+	// Tab 0: [1. STATS / OBJ]
+	renderDrawRect(10, 6, 145, 18, (editorPage == 0) ? RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	if (editorPage == 0) fontSetWhite(true);
+	fontConvertString(buf, "1. STATS / OBJ");
+	fontDrawString8(36, 11, buf);
+	if (editorPage == 0) fontSetWhite(false);
+
+	// Tab 1: [2. ATAQUES]
+	renderDrawRect(165, 6, 145, 18, (editorPage == 1) ? RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	if (editorPage == 1) fontSetWhite(true);
+	fontConvertString(buf, "2. ATAQUES");
+	fontDrawString8(202, 11, buf);
+	if (editorPage == 1) fontSetWhite(false);
+
+	if (editorPage == 1) // Moves Editor UI
+	{
+		fontConvertString(buf, "MOVIMIENTO");
+		fontDrawString8(44, 32, buf);
+		fontConvertString(buf, "PP");
+		fontDrawString8(234, 32, buf);
+
+		for (uint8_t s = 0; s < 4; s++)
+		{
+			int16_t my = 46 + s * 35;
+			bool isCur = (editorMoveSlot == s);
+
+			renderDrawRect(12, my, 296, 31, isCur ? RENDER_RGBA(0xEE, 0xF4, 0xFC, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
+			if (isCur)
+			{
+				renderDrawRect(12, my, 296, 1, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+				renderDrawRect(12, my + 30, 296, 1, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+				renderDrawRect(12, my, 1, 31, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+				renderDrawRect(307, my, 1, 31, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+			}
+
+			// Slot number
+			fontDrawFromRightUInt32(24, my + 11, s + 1);
+
+			// Dec button (<)
+			renderDrawRect(28, my + 5, 22, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			fontConvertString(buf, "<");
+			fontDrawString8(36, my + 11, buf);
+
+			// Move Name
+			uint8_t m = pkm->moves[s];
+			if (m == 0)
+			{
+				fontConvertString(buf, "-------");
+				fontDrawString8(56, my + 11, buf);
+			}
+			else
+			{
+				fontDrawString8(56, my + 11, dataMove(m));
+			}
+
+			// Inc button (>)
+			renderDrawRect(184, my + 5, 22, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			fontConvertString(buf, ">");
+			fontDrawString8(192, my + 11, buf);
+
+			// PP
+			if (m == 0)
+			{
+				fontConvertString(buf, "0/0");
+				fontDrawString8(224, my + 11, buf);
+			}
+			else
+			{
+				fontDrawFromRightUInt32(236, my + 11, pkm->PPs[s]);
+				fontConvertString(buf, "/");
+				fontDrawString8(238, my + 11, buf);
+				fontDrawFromRightUInt32(258, my + 11, PersonalMove(m)->PP);
+			}
+
+			// Delete button (BOR)
+			renderDrawRect(264, my + 5, 38, 21, RENDER_RGBA(0xE8, 0xDC, 0xDC, 0xFF));
+			fontConvertString(buf, "BOR");
+			fontDrawString8(272, my + 11, buf);
+		}
+
+		// Help line
+		fontConvertString(buf, "L/R: TAB   DPAD: +/-   X: BORRAR");
+		fontDrawString8(46, 184, buf);
+
+		// Save & Exit button
+		renderDrawRect(14, 196, 292, 28, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontSetWhite(true);
+		fontConvertString(buf, "START / B: GUARDAR Y SALIR");
+		fontDrawString8(56, 206, buf);
+		fontSetWhite(false);
+		return;
+	}
+
+	// Page 0: Stats / Obj / Evolución
+	bool isShiny = saveIsPkmShiny(pkm);
+
+	// Top Row: Shiny, Nivel, Max DV, Max EV (y=28..46)
+	renderDrawRect(12, 28, 84, 18, isShiny ? RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	gfxDrawShinyStarSmall(15, 33);
 	fontConvertString(buf, isShiny ? "SHINY:SI" : "SHINY:NO");
-	fontDrawString8(26, 18, buf);
+	fontDrawString8(26, 33, buf);
 
 	// Nivel
-	renderDrawRect(98, 12, 96, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	renderDrawRect(98, 28, 96, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 	fontConvertString(buf, "NV:");
-	fontDrawString8(102, 18, buf);
-	renderDrawRect(126, 14, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
+	fontDrawString8(102, 33, buf);
+	renderDrawRect(126, 29, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
 	fontConvertString(buf, "-");
-	fontDrawString8(131, 18, buf);
-	fontDrawFromRightUInt32(164, 18, pkm->level);
-	renderDrawRect(172, 14, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
+	fontDrawString8(131, 33, buf);
+	fontDrawFromRightUInt32(164, 33, pkm->level);
+	renderDrawRect(172, 29, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
 	fontConvertString(buf, "+");
-	fontDrawString8(177, 18, buf);
+	fontDrawString8(177, 33, buf);
 
 	// Max DV
-	renderDrawRect(198, 12, 52, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	renderDrawRect(198, 28, 52, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 	fontConvertString(buf, "MAX DV");
-	fontDrawString8(200, 18, buf);
+	fontDrawString8(200, 33, buf);
 
 	// Max EV
-	renderDrawRect(254, 12, 52, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	renderDrawRect(254, 28, 52, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 	fontConvertString(buf, "MAX EV");
-	fontDrawString8(256, 18, buf);
+	fontDrawString8(256, 33, buf);
 
 	// Table Header
 	fontConvertString(buf, "ESTAD");
-	fontDrawString8(14, 35, buf);
+	fontDrawString8(14, 49, buf);
 	fontConvertString(buf, "DV (0-15)");
-	fontDrawString8(60, 35, buf);
+	fontDrawString8(60, 49, buf);
 	fontConvertString(buf, "EV (0-65535)");
-	fontDrawString8(168, 35, buf);
-	renderDrawRect(12, 45, 294, 1, RENDER_RGBA(0xB0, 0xB8, 0xC8, 0xFF));
+	fontDrawString8(168, 49, buf);
+	renderDrawRect(12, 57, 294, 1, RENDER_RGBA(0xB0, 0xB8, 0xC8, 0xFF));
 
-	// Stats Rows
+	// Stats Rows (y=60 + r * 20)
 	static const char* statNames[4] = { "ATAQ", "DEFE", "VELO", "ESPE" };
 	static const uint8_t rowStatIdx[4] = { STAT_ATK, STAT_DEF, STAT_SPE, STAT_SPC };
 
 	for (uint8_t r = 0; r < 4; r++)
 	{
-		int16_t ry = 48 + r * 23;
+		int16_t ry = 60 + r * 20;
 		uint8_t st = rowStatIdx[r];
 
-		renderDrawRect(12, ry, 294, 21, (r % 2 == 0) ? RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
+		renderDrawRect(12, ry, 294, 18, (r % 2 == 0) ? RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
 		fontConvertString(buf, statNames[r]);
-		fontDrawString8(14, ry + 6, buf);
+		fontDrawString8(14, ry + 5, buf);
 
 		// DV [-] 15 [+]
-		renderDrawRect(54, ry + 2, 18, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		renderDrawRect(54, ry + 1, 18, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 		fontConvertString(buf, "-");
-		fontDrawString8(59, ry + 6, buf);
-		drawTwoDigit(78, ry + 6, pkm->IVs[st]);
-		renderDrawRect(100, ry + 2, 18, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		fontDrawString8(59, ry + 5, buf);
+		drawTwoDigit(78, ry + 5, pkm->IVs[st]);
+		renderDrawRect(100, ry + 1, 18, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 		fontConvertString(buf, "+");
-		fontDrawString8(105, ry + 6, buf);
+		fontDrawString8(105, ry + 5, buf);
 
 		// EV value [-5k] [+5k]
-		fontDrawFromRightUInt32(168, ry + 6, pkm->EVs[st]);
-		renderDrawRect(184, ry + 2, 54, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		fontDrawFromRightUInt32(168, ry + 5, pkm->EVs[st]);
+		renderDrawRect(184, ry + 1, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 		fontConvertString(buf, "-5k");
-		fontDrawString8(198, ry + 6, buf);
-		renderDrawRect(244, ry + 2, 54, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		fontDrawString8(198, ry + 5, buf);
+		renderDrawRect(244, ry + 1, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 		fontConvertString(buf, "+5k");
-		fontDrawString8(258, ry + 6, buf);
+		fontDrawString8(258, ry + 5, buf);
 	}
 
 	// PS Row (ry=140)
-	renderDrawRect(12, 140, 294, 21, RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF));
+	renderDrawRect(12, 140, 294, 18, RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF));
 	fontConvertString(buf, "PS (AUTO:");
-	fontDrawString8(14, 146, buf);
-	drawTwoDigit(86, 146, pkm->IVs[STAT_HP]);
+	fontDrawString8(14, 145, buf);
+	drawTwoDigit(86, 145, pkm->IVs[STAT_HP]);
 	fontConvertString(buf, ")");
-	fontDrawString8(102, 146, buf);
+	fontDrawString8(102, 145, buf);
 
-	fontDrawFromRightUInt32(168, 146, pkm->EVs[STAT_HP]);
-	renderDrawRect(184, 142, 54, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	fontDrawFromRightUInt32(168, 145, pkm->EVs[STAT_HP]);
+	renderDrawRect(184, 141, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 	fontConvertString(buf, "-5k");
-	fontDrawString8(198, 146, buf);
-	renderDrawRect(244, 142, 54, 17, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	fontDrawString8(198, 145, buf);
+	renderDrawRect(244, 141, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 	fontConvertString(buf, "+5k");
-	fontDrawString8(258, 146, buf);
+	fontDrawString8(258, 145, buf);
 
-	// Row 6: Item / Egg
-	if (pkm->isEgg)
+	// Row 6: Item / Egg / Trade Evolution (y=162)
+	if (saveCanTradeEvolve(pkm, inGen1))
 	{
-		renderDrawRect(14, 166, 292, 25, RENDER_RGBA(0x38, 0x98, 0x48, 0xFF));
+		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0x28, 0x88, 0x48, 0xFF));
+		fontSetWhite(true);
+		fontConvertString(buf, "¡EVOLUCIONAR POR INTERCAMBIO!");
+		fontDrawString8(44, 170, buf);
+		fontSetWhite(false);
+	}
+	else if (pkm->isEgg)
+	{
+		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0x38, 0x98, 0x48, 0xFF));
 		fontSetWhite(true);
 		fontConvertString(buf, "ECLOSIONAR HUEVO AHORA");
-		fontDrawString8(72, 175, buf);
+		fontDrawString8(72, 170, buf);
 		fontSetWhite(false);
 	}
 	else
 	{
-		renderDrawRect(12, 166, 294, 25, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF));
+		renderDrawRect(12, 162, 294, 24, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF));
 		if (!canHold)
 		{
 			fontConvertString(buf, "OBJETO: NO DISPONIBLE EN 1A GEN");
-			fontDrawString8(16, 175, buf);
+			fontDrawString8(16, 170, buf);
 		}
 		else
 		{
 			fontConvertString(buf, "OBJ:");
-			fontDrawString8(14, 175, buf);
-			renderDrawRect(46, 168, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			fontDrawString8(14, 170, buf);
+			renderDrawRect(46, 164, 20, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 			fontConvertString(buf, "<");
-			fontDrawString8(52, 175, buf);
+			fontDrawString8(52, 170, buf);
 
 			if (pkm->heldItem == 0)
 			{
 				fontConvertString(buf, "NINGUNO");
-				fontDrawString8(72, 175, buf);
+				fontDrawString8(72, 170, buf);
 			}
 			else
 			{
-				fontDrawString8(72, 175, items_table[pkm->heldItem].name);
+				fontDrawString8(72, 170, items_table[pkm->heldItem].name);
 			}
 
-			renderDrawRect(176, 168, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			renderDrawRect(176, 164, 20, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 			fontConvertString(buf, ">");
-			fontDrawString8(182, 175, buf);
+			fontDrawString8(182, 170, buf);
 
-			renderDrawRect(204, 168, 98, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			renderDrawRect(204, 164, 98, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 			fontConvertString(buf, "QUITAR");
-			fontDrawString8(230, 175, buf);
+			fontDrawString8(230, 170, buf);
 		}
 	}
 
 	// Row 7: Save & Exit
-	renderDrawRect(14, 196, 292, 28, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(14, 194, 292, 28, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
 	fontSetWhite(true);
 	fontConvertString(buf, "START / B: GUARDAR Y SALIR");
-	fontDrawString8(56, 206, buf);
+	fontDrawString8(56, 204, buf);
 	fontSetWhite(false);
 
 	// Focus highlight outline

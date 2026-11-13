@@ -1,5 +1,7 @@
 #include <stdlib.h>
 #include "items.h"
+#include "save.h"
+#include "pokedex.h"
 #include "pkdir.h"
 
 #include <stdio.h>
@@ -97,15 +99,16 @@ void bankStoreLoad(void)
 {
 	memset(&bankStore, 0, sizeof(BankStoreData));
 	bankStore.magic = POKEDEX_BIN_MAGIC;
-	bankStore.version = 2;
+	bankStore.version = 3;
 
 	FILE* fp = fopen(POKEDEX_BIN_PATH, "rb");
 	if (fp)
 	{
 		BankStoreData tmp;
+		memset(&tmp, 0, sizeof(BankStoreData));
 		size_t r = fread(&tmp, 1, sizeof(BankStoreData), fp);
 		fclose(fp);
-		if (r == sizeof(BankStoreData) && tmp.magic == POKEDEX_BIN_MAGIC)
+		if (r >= sizeof(uint32_t) * 2 && tmp.magic == POKEDEX_BIN_MAGIC)
 		{
 			memcpy(bankStore.itemCounts, tmp.itemCounts, sizeof(bankStore.itemCounts));
 			if (tmp.version >= 2)
@@ -113,6 +116,10 @@ void bankStoreLoad(void)
 				memcpy(bankStore.dexSeen, tmp.dexSeen, sizeof(bankStore.dexSeen));
 				memcpy(bankStore.dexOwned, tmp.dexOwned, sizeof(bankStore.dexOwned));
 				memcpy(bankStore.dexOrigin, tmp.dexOrigin, sizeof(bankStore.dexOrigin));
+			}
+			if (tmp.version >= 3)
+			{
+				bankStore.mysteryGiftClaimed = tmp.mysteryGiftClaimed;
 			}
 		}
 	}
@@ -132,6 +139,97 @@ void bankStoreSave(void)
 		fwrite(&bankStore, 1, sizeof(BankStoreData), fp);
 		fclose(fp);
 	}
+}
+
+bool bankStoreHas150Kanto(void)
+{
+	for (uint8_t i = 1; i <= 150; i++)
+	{
+		if (!bankStoreIsOwned(i)) return false;
+	}
+	return true;
+}
+
+bool bankStoreIsMewClaimed(void)
+{
+	return (bankStore.mysteryGiftClaimed & 0x01) != 0;
+}
+
+int16_t bankStoreClaimMewGF(void)
+{
+	if (!bankStoreHas150Kanto() || bankStoreIsMewClaimed()) return -1;
+
+	// Find first empty slot in bank
+	int16_t targetBox = -1;
+	uint8_t targetSlot = 0;
+	for (uint8_t b = 0; b < sbank.boxCount; b++)
+	{
+		for (uint8_t s = 0; s < sbank.boxes[b].capacity; s++)
+		{
+			if (saveIsPkmEmpty(&sbank.boxes[b].slots[s]))
+			{
+				targetBox = b;
+				targetSlot = s;
+				break;
+			}
+		}
+		if (targetBox >= 0) break;
+	}
+
+	if (targetBox < 0) return -1; // Bank is full
+
+	SAV_Pokemon mew;
+	memset(&mew, 0, sizeof(SAV_Pokemon));
+
+	mew.nationalDex = SPECIES_MEW;
+	mew.species = pokedexGetIndex(SPECIES_MEW);
+	mew.speciesIndex = mew.species;
+	mew.level = 5;
+	mew.currentLevel = 5;
+	mew.experience = 135; // Nv 5 Medium-Slow
+
+	// Moves: Pound (1), 35 PP
+	mew.moves[0] = 1;
+	mew.PPs[0] = 35;
+
+	// DVs: 15 / 15 / 15 / 15
+	mew.IVs[STAT_ATK] = 15;
+	mew.IVs[STAT_DEF] = 15;
+	mew.IVs[STAT_SPE] = 15;
+	mew.IVs[STAT_SPC] = 15;
+	mew.IVs[STAT_HP]  = 15;
+
+	mew.catchRate = 45;
+	mew.heldItem = 0;
+	mew.friendship = 70;
+	mew.originalTID = 22796; // 0x590C (GF UK 2016)
+
+	// OT: "GF" -> [0x86, 0x85, 0x50]
+	mew.nameOT[0] = 0x86;
+	mew.nameOT[1] = 0x85;
+	mew.nameOT[2] = 0x50;
+
+	// Name: "MEW" -> [0x8C, 0x84, 0x96, 0x50]
+	mew.nameNK[0] = 0x8C;
+	mew.nameNK[1] = 0x84;
+	mew.nameNK[2] = 0x96;
+	mew.nameNK[3] = 0x50;
+
+	saveRecalculateStats(&mew);
+	mew.currentHP = mew.maxHP;
+	mew.moved = true;
+
+	// Store in bank
+	sbank.boxes[targetBox].slots[targetSlot] = mew;
+	sbank.boxes[targetBox].count++;
+
+	// Mark owned in bank pokedex
+	bankStoreRecordSpecies(SPECIES_MEW, POKEMON_YELLOW);
+	bankStore.mysteryGiftClaimed |= 0x01;
+
+	saveCommitBank();
+
+	return targetBox + 1; // 1-based box number
 }
 
 uint8_t itemToGen2(uint8_t itemId, bool isGen1)

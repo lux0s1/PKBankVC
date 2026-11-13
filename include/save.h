@@ -410,3 +410,8 @@ void bankReadData(uint8_t* bank, SAV_Bank* sbank, uint32_t bytesRead);
  * @param[in] path The path of the bank file.
  */
 void bankWriteData(uint8_t* bank, SAV_Bank* sbank);
+
+void saveCommitBank(void);
+bool saveCanTradeEvolve(const SAV_Pokemon* pkm, bool inGen1);
+uint8_t saveGetTradeEvolveTarget(const SAV_Pokemon* pkm, bool inGen1);
+bool saveTradeEvolve(SAV_Pokemon* pkm, bool inGen1);

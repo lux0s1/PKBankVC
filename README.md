@@ -35,12 +35,22 @@ Supports all 7 main-line Game Boy and Game Boy Color releases across every langu
 - Smart item conversion between Gen I and Gen II item IDs.
 - Automatic security locks preventing Gen II items or held items from entering Gen I games.
 
-### ✨ Built-in Touch Pokémon Editor
-Press **START** on any Pokémon to access the touch editor:
+### ✨ Built-in Touch Pokémon Editor & Move Manager
+Press **START** on any Pokémon to access the unified touch editor:
 - **Instant Shiny Converter:** Automatically generates valid Gen II shiny IV spreads ($10/10/10/10$).
 - **DV / IV & EV Customizer:** Full manual control over Attack, Defense, Speed, and Special stats.
-- **Level & Nickname Editor:** Easily adjust levels or fix nicknames on the fly.
+- **Level & Egg Hatching:** Easily adjust levels or hatch eggs instantly to level 5.
+- **Simulated Trade Evolutions:** Evolve trade-evolution Pokémon directly inside the Bank/Cartridge (Kadabra $\rightarrow$ Alakazam, Machoke $\rightarrow$ Machamp, Graveler $\rightarrow$ Golem, Haunter $\rightarrow$ Gengar, and Gen II held-item trade evolutions) without requiring a second 3DS console.
+- **Move Manager (Tab 2):** Modify moves with generation legality rules (1..165 in Gen I, 1..251 in Gen II/Bank), automatic max base PP calculation, and fast delete.
 - **Touch-and-Hold Quick Clone:** Hold any Pokémon on the bottom screen for 2.5 seconds to clone and place it anywhere in your boxes.
+
+### 🎁 Mystery Gift: GF Mew (UK 2016)
+- Complete your Bank Pokédex with the original 150 Kanto Pokémon (#1 to #150) from any Virtual Console game.
+- Unlock and claim the canonical Game Freak UK 2016 Mew (OT: `GF`, TID: `22796`, Max DVs `15/15/15/15`, Level 5, Pound, no item) directly from the Pokédex screen!
+
+### 📦 Multi-Pokémon Batch Movement
+- Switch into **MULTI** selection mode from the bottom toolbar.
+- Select multiple Pokémon simultaneously with stylus or A button and move them across boxes in a single transfer with capacity and Gen I legality verification.
 
 ---
 
