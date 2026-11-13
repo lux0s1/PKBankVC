@@ -1881,12 +1881,14 @@ static void boxViewerDrawBottom(void)
 		fontConvertString(buf, "X:MOCHILA");
 		fontDrawString8(12, 212, buf);
 
-		// Multi button in slight teal highlight
-		renderDrawRect(83, 202, 70, 28, RENDER_RGBA(0x28, 0x78, 0x60, 0xFF));
-		fontSetWhite(true);
-		fontConvertString(buf, "MULTI");
-		fontDrawString8(98, 212, buf);
-		fontSetWhite(false);
+		// Multi button in authentic Game Boy panel style
+		renderDrawRect(84, 204, 66, 24, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF));
+		renderDrawRect(84, 204, 66, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(84, 227, 66, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(84, 204, 1, 24, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(149, 204, 1, 24, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		fontConvertString(buf, "[MULTI]");
+		fontDrawString8(94, 212, buf);
 
 		fontConvertString(buf, "START:EDIT");
 		fontDrawString8(158, 212, buf);
@@ -1899,20 +1901,24 @@ static void boxViewerDrawBottom(void)
 		renderDrawRect(88, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
 		renderDrawRect(230, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
 
-		fontConvertString(buf, "CANCELAR");
-		fontDrawString8(14, 212, buf);
+		fontConvertString(buf, "B:CANCEL");
+		fontDrawString8(12, 212, buf);
 
-		// Batch Action button in bright green with count
-		renderDrawRect(90, 202, 138, 28, RENDER_RGBA(0x28, 0x90, 0x48, 0xFF));
-		fontSetWhite(true);
+		// Batch Action in authentic Game Boy dialog style: crisp panel with dark border and arrow
+		renderDrawRect(92, 203, 134, 26, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(92, 203, 134, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(92, 228, 134, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(92, 203, 1, 26, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(225, 203, 1, 26, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+
 		char batchStr[32];
 		snprintf(batchStr, sizeof(batchStr), "MOVER (%d)", (int)getBatchSelectedCount());
 		fontConvertString(buf, batchStr);
-		fontDrawString8(118, 212, buf);
-		fontSetWhite(false);
+		fontDrawChar8(100, 212, 0xED); // Classic Pokemon triangle arrow ►
+		fontDrawString8(112, 212, buf);
 
-		fontConvertString(buf, "LIMPIAR");
-		fontDrawString8(244, 212, buf);
+		fontConvertString(buf, "Y:LIMPIAR");
+		fontDrawString8(238, 212, buf);
 	}
 
 	if (cursor.sPkm)
@@ -2005,8 +2011,9 @@ static void boxDrawBox(CursorInbox* cursorin, int16_t x, int16_t y)
 
 		if (batchMode && (cursorin->inBank == batchSourceInBank) && (cursorin->box == batchSourceBox) && batchSelected[i])
 		{
-			renderDrawRect(px - 3, py - 3, 24, 24, RENDER_RGBA(0x28, 0xC8, 0x40, 0xFF));
-			renderDrawRect(px - 2, py - 2, 22, 22, RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF));
+			// Retro GB selection highlight: elegant dark-charcoal frame with soft inner fill
+			renderDrawRect(px - 3, py - 3, 24, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+			renderDrawRect(px - 2, py - 2, 22, 22, RENDER_RGBA(0xDE, 0xE4, 0xEE, 0xFF));
 		}
 
 		if (&cursorin->vBox->slots[i] != cursor.sPkm)
@@ -2717,18 +2724,46 @@ static void pkmEditorDrawBottom(void)
 
 	// Tabs Header (y=6..26)
 	// Tab 0: [1. STATS / OBJ]
-	renderDrawRect(10, 6, 145, 18, (editorPage == 0) ? RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-	if (editorPage == 0) fontSetWhite(true);
-	fontConvertString(buf, "1. STATS / OBJ");
-	fontDrawString8(36, 11, buf);
-	if (editorPage == 0) fontSetWhite(false);
+	if (editorPage == 0)
+	{
+		renderDrawRect(10, 6, 145, 20, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(10, 6, 145, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(10, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(154, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(20, 12, 0xED); // ►
+		fontConvertString(buf, "1. STATS / OBJ");
+		fontDrawString8(32, 12, buf);
+	}
+	else
+	{
+		renderDrawRect(10, 8, 145, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		renderDrawRect(10, 8, 145, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(10, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(154, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		fontConvertString(buf, "1. STATS / OBJ");
+		fontDrawString8(28, 13, buf);
+	}
 
 	// Tab 1: [2. ATAQUES]
-	renderDrawRect(165, 6, 145, 18, (editorPage == 1) ? RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-	if (editorPage == 1) fontSetWhite(true);
-	fontConvertString(buf, "2. ATAQUES");
-	fontDrawString8(202, 11, buf);
-	if (editorPage == 1) fontSetWhite(false);
+	if (editorPage == 1)
+	{
+		renderDrawRect(165, 6, 145, 20, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(165, 6, 145, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(165, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(309, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(178, 12, 0xED); // ►
+		fontConvertString(buf, "2. ATAQUES");
+		fontDrawString8(190, 12, buf);
+	}
+	else
+	{
+		renderDrawRect(165, 8, 145, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		renderDrawRect(165, 8, 145, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(165, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(309, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		fontConvertString(buf, "2. ATAQUES");
+		fontDrawString8(186, 13, buf);
+	}
 
 	if (editorPage == 1) // Moves Editor UI
 	{
@@ -2742,20 +2777,24 @@ static void pkmEditorDrawBottom(void)
 			int16_t my = 46 + s * 35;
 			bool isCur = (editorMoveSlot == s);
 
-			renderDrawRect(12, my, 296, 31, isCur ? RENDER_RGBA(0xEE, 0xF4, 0xFC, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
+			renderDrawRect(12, my, 296, 31, isCur ? RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RENDER_RGBA(0xF4, 0xF6, 0xFA, 0xFF));
+			// Retro Game Boy panel outline
+			renderDrawRect(12, my, 296, 1, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+			renderDrawRect(12, my + 30, 296, 1, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+			renderDrawRect(12, my, 1, 31, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+			renderDrawRect(307, my, 1, 31, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+
+			// Cursor arrow if currently selected
 			if (isCur)
 			{
-				renderDrawRect(12, my, 296, 1, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-				renderDrawRect(12, my + 30, 296, 1, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-				renderDrawRect(12, my, 1, 31, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-				renderDrawRect(307, my, 1, 31, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+				fontDrawChar8(14, my + 11, 0xED); // ►
 			}
 
 			// Slot number
-			fontDrawFromRightUInt32(24, my + 11, s + 1);
+			fontDrawFromRightUInt32(26, my + 11, s + 1);
 
 			// Dec button (<)
-			renderDrawRect(28, my + 5, 22, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			renderDrawRect(30, my + 5, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 			fontConvertString(buf, "<");
 			fontDrawString8(36, my + 11, buf);
 
@@ -2772,9 +2811,9 @@ static void pkmEditorDrawBottom(void)
 			}
 
 			// Inc button (>)
-			renderDrawRect(184, my + 5, 22, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			renderDrawRect(184, my + 5, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
 			fontConvertString(buf, ">");
-			fontDrawString8(192, my + 11, buf);
+			fontDrawString8(190, my + 11, buf);
 
 			// PP
 			if (m == 0)
@@ -2900,19 +2939,28 @@ static void pkmEditorDrawBottom(void)
 	// Row 6: Item / Egg / Trade Evolution (y=162)
 	if (saveCanTradeEvolve(pkm, inGen1))
 	{
-		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0x28, 0x88, 0x48, 0xFF));
-		fontSetWhite(true);
-		fontConvertString(buf, "¡EVOLUCIONAR POR INTERCAMBIO!");
-		fontDrawString8(44, 170, buf);
-		fontSetWhite(false);
+		// Authentic Pokemon Game Boy dialog action box
+		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(14, 162, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(14, 185, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(14, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(305, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+
+		fontDrawChar8(34, 170, 0xED); // Classic Pokemon triangle arrow ►
+		fontConvertString(buf, "EVOLUCIONAR (INTERCAMBIO)");
+		fontDrawString8(46, 170, buf);
 	}
 	else if (pkm->isEgg)
 	{
-		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0x38, 0x98, 0x48, 0xFF));
-		fontSetWhite(true);
+		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(14, 162, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(14, 185, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(14, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(305, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+
+		fontDrawChar8(58, 170, 0xED);
 		fontConvertString(buf, "ECLOSIONAR HUEVO AHORA");
-		fontDrawString8(72, 170, buf);
-		fontSetWhite(false);
+		fontDrawString8(70, 170, buf);
 	}
 	else
 	{
@@ -2957,11 +3005,11 @@ static void pkmEditorDrawBottom(void)
 	fontDrawString8(56, 204, buf);
 	fontSetWhite(false);
 
-	// Focus highlight outline
+	// Focus highlight outline in authentic Game Boy dark charcoal
 	int16_t fx, fy, fw, fh;
 	getEditorElementRect(editorRow, editorCol, &fx, &fy, &fw, &fh, pkm, canHold);
-	renderDrawRect(fx - 2, fy - 2, fw + 4, 2, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-	renderDrawRect(fx - 2, fy + fh, fw + 4, 2, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-	renderDrawRect(fx - 2, fy - 2, 2, fh + 4, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
-	renderDrawRect(fx + fw, fy - 2, 2, fh + 4, RENDER_RGBA(0x00, 0x78, 0xD7, 0xFF));
+	renderDrawRect(fx - 2, fy - 2, fw + 4, 2, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(fx - 2, fy + fh, fw + 4, 2, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(fx - 2, fy - 2, 2, fh + 4, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(fx + fw, fy - 2, 2, fh + 4, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
 }
