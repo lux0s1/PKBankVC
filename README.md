@@ -83,18 +83,20 @@ Press **START** on any Pokémon to access the touch editor:
 
 ### Compile
 ```bash
-git clone https://github.com/SilverDemon/PKBankVC.git
+git clone https://github.com/lux0s1/PKBankVC.git
 cd PKBankVC
 make
+make cia
 ```
-The compiled binaries (`PKBankVC.3dsx` and `PKBankVC.smdh`) will be generated in the root directory.
+The compiled binaries (`PKBankVC.3dsx`, `PKBankVC.smdh`, and `PKBankVC.cia`) will be generated in the root directory.
 
 ---
 
 ## 👥 Credits & Acknowledgments
-- **SilverDemon** — Main developer, modern architecture, Pokédex, touch editor, item storage, and bug fixes.
-- **Gocario** — Creator of the original PHBankGB project.
-- **devkitPro & libctru contributors** — 3DS homebrew toolchain and graphics libraries.
+- **SilverDemon** — Project Lead, Main Developer, modern architecture, Pokédex, touch editor, item storage, and bug fixes.
+- **Antigravity (Google DeepMind)** — Autonomous AI software engineering agent: codebase audit, UI/touch system redesign, animated Pokédex integration, SRAM & save memory bug fixes, and custom pixel-art asset design.
+- **Gocario** — Creator of the original PHBankGB base project.
+- **devkitPro & libctru contributors** — 3DS homebrew toolchain, citro2d, and graphics libraries.
 - **Game Freak & Nintendo** — Pokémon series and Virtual Console releases.
 
 ---
