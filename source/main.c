@@ -146,6 +146,15 @@ int main(int argc, char* argv[])
 				}
 
 				saveSave(argc > 1 ? argv[1] : NULL);
+
+				// If exit was NOT requested via SELECT (i.e. OS/HOME Menu requested application termination),
+				// break immediately out of the outer loop to shut down cleanly without re-entering TS_Loop/TS_Init.
+				if (!boxViewerWantsExit())
+				{
+					gfxFreeFrame();
+					FSCIA_Exit();
+					break;
+				}
 			}
 
 			gfxFreeFrame();

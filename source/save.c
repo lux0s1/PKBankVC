@@ -936,33 +936,25 @@ void saveReadData(const uint8_t* save, SAV_Game* sgame, SAV_GameLang lgame)
 		saveExtractPokemonList(save, &sgame->boxes[i], offset, sizePkm, sgame->nameSize, sgame->boxCapacity);
 	}
 
-	// Purge leftover "MattiaPK" ghost Pokémon on brand-new 0-hour saves where trainer is not MattiaPK
-	const char8_t* tName = saveGetTrainerName();
-	static const uint8_t mattiaOT[7] = { 0x8C, 0xA0, 0xB3, 0xB3, 0xA8, 0xA0, 0xE1 };
+	// Purge leftover ghost Pokémon on brand-new 0-hour saves (New Game saved in bedroom)
 	uint8_t hours = (vgame >= POKEMON_GOLD) ? save[0x2054] : save[lgame == POKEMON_JP ? 0x2CA0 : 0x2CED];
-	if (hours == 0 && memcmp(tName, mattiaOT, 7) != 0)
+	uint8_t minutes = (vgame >= POKEMON_GOLD) ? save[0x2055] : save[lgame == POKEMON_JP ? 0x2CA2 : 0x2CEF];
+	if (hours == 0 && minutes <= 10)
 	{
-		uint8_t* gOwned = saveGetPokedexOwned();
-		uint8_t* gSeen  = saveGetPokedexSeen();
+		uint16_t pTid = (vgame >= POKEMON_GOLD) ? ((save[0x2009] << 8) | save[0x200A]) : ((save[0x2605] << 8) | save[0x2606]);
 		for (uint8_t b = 0; b < sgame->boxCount; b++)
 		{
+			if (b == currentBox) continue;
 			bool boxCleaned = false;
 			for (uint8_t s = 0; s < sgame->boxes[b].capacity; s++)
 			{
 				SAV_Pokemon* pkm = &sgame->boxes[b].slots[s];
-				if (!saveIsPkmEmpty(pkm) && memcmp(pkm->nameOT, mattiaOT, 7) == 0)
+				if (!saveIsPkmEmpty(pkm) && pkm->originalTID != pTid)
 				{
-					uint8_t ndex = pkm->nationalDex;
-					if (ndex >= 1 && ndex <= 251)
-					{
-						uint8_t bit = ndex - 1;
-						if (gOwned) gOwned[bit / 8] &= ~(1 << (bit % 8));
-						if (gSeen)  gSeen[bit / 8]  &= ~(1 << (bit % 8));
-					}
 					memset(pkm, 0, sizeof(SAV_Pokemon));
 					pkm->species = 0xFF;
 					pkm->speciesIndex = 0xFF;
-					pkm->moved = true;
+					pkm->moved = false;
 					boxCleaned = true;
 				}
 			}
@@ -1014,18 +1006,13 @@ void saveWriteData(uint8_t* save, SAV_Game* sgame)
 			}
 		}
 
-		// Count the PokÃ©mon
+		// Count the Pokémon
 		sgame->boxes[iB].count = 0;
 		for (uint8_t iP = 0; iP < sgame->boxes[iB].capacity; iP++)
 		{
 			if (!saveIsPkmEmpty(&sgame->boxes[iB].slots[iP]))
 			{
 				sgame->boxes[iB].count++;
-				if (!sgame->boxes[iB].slots[iP].isEgg && sgame->boxes[iB].slots[iP].moved)
-				{
-					pokedexAddOwned(sgame->boxes[iB].slots[iP].nationalDex);
-					pokedexAddSeen(sgame->boxes[iB].slots[iP].nationalDex);
-				}
 			}
 		}
 

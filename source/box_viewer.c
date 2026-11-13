@@ -1503,6 +1503,11 @@ void boxViewerUpdate(void)
 							{
 								if (cursor.box->inBank && !cursor.vPkm->isEgg)
 									bankStoreRecordSpecies(cursor.vPkm->nationalDex, vgame);
+								if (touchHoldSourceBank && !cursor.box->inBank && !cursor.vPkm->isEgg)
+								{
+									pokedexAddOwned(cursor.vPkm->nationalDex);
+									pokedexAddSeen(cursor.vPkm->nationalDex);
+								}
 								showBoxAlert("POKEMON CLONADO", "CON EXITO");
 							}
 						}
@@ -1818,6 +1823,13 @@ static void boxSelectMovePokemon(void)
 					bankStoreRecordSpecies(cursor.vPkm->nationalDex, vgame);
 				if (cursor.sSlot.inBank && !saveIsPkmEmpty(cursor.sPkm) && !cursor.sPkm->isEgg)
 					bankStoreRecordSpecies(cursor.sPkm->nationalDex, vgame);
+
+				// Only add to in-game Pokédex when transferring from Bank into Game
+				if (cursor.sSlot.inBank && !cursor.box->inBank && !saveIsPkmEmpty(cursor.vPkm) && !cursor.vPkm->isEgg)
+				{
+					pokedexAddOwned(cursor.vPkm->nationalDex);
+					pokedexAddSeen(cursor.vPkm->nationalDex);
+				}
 				boxCancelMovePokemon();
 			}
 		}
