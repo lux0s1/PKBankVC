@@ -94,7 +94,9 @@ Result saveLoad(const char* path)
 	Result ret;
 
 	memset(&sgame, 0, sizeof(SAV_Game));
+	memset(&sbank, 0, sizeof(SAV_Bank));
 	memset(save, 0, SAVE_SIZE);
+	memset(bank, 0, BANK_SIZE);
 
 	vgame = saveGetGameVersion(titleid);
 	lgame = saveGetGameLang(titleid);
@@ -122,7 +124,9 @@ void saveSave(const char* path)
 	bankStoreSave();
 
 	memset(&sgame, 0, sizeof(SAV_Game));
+	memset(&sbank, 0, sizeof(SAV_Bank));
 	memset(save, 0, SAVE_SIZE);
+	memset(bank, 0, BANK_SIZE);
 }
 
 SAV_GameVersion saveGetGameVersion(uint64_t titleid)
@@ -431,19 +435,21 @@ static void saveExtractPokemon(const uint8_t* save, SAV_Pokemon* pkm, uint8_t in
  */
 static void saveInjectPokemon(uint8_t* save, const SAV_Pokemon* pkm, uint8_t index, uint8_t sizePkm, uint8_t sizeName, uint8_t capacity)
 {
-	if (!pkm->moved) return;
-
 	uint8_t* pkmbuf;
 
 	if (sizePkm == 0x20)
 	{
-		// Gen II Box PokÃ©mon (32 bytes)
+		// Gen II Box Pokémon (32 bytes)
 		pkmbuf = save + 1 + index;
 		if (saveIsPkmEmpty(pkm))
 		{
 			pkmbuf[0x00] = 0xFF;
 			pkmbuf = save + 2 + capacity + index * sizePkm;
 			memset(pkmbuf, 0, sizePkm);
+			pkmbuf = save + 2 + capacity * (sizePkm + 1) + index * sizeName;
+			memset(pkmbuf, 0, sizeName);
+			pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
+			memset(pkmbuf, 0, sizeName);
 			return;
 		}
 
@@ -485,13 +491,17 @@ static void saveInjectPokemon(uint8_t* save, const SAV_Pokemon* pkm, uint8_t ind
 	}
 	else
 	{
-		// Gen I / Bank Box PokÃ©mon (33 bytes) or Party (44 bytes)
+		// Gen I / Bank Box Pokémon (33 bytes) or Party (44 bytes)
 		pkmbuf = save + 1 + index;
 		if (saveIsPkmEmpty(pkm))
 		{
 			pkmbuf[0x00] = 0xFF;
 			pkmbuf = save + 2 + capacity + index * sizePkm;
 			memset(pkmbuf, 0, sizePkm);
+			pkmbuf = save + 2 + capacity * (sizePkm + 1) + index * sizeName;
+			memset(pkmbuf, 0, sizeName);
+			pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
+			memset(pkmbuf, 0, sizeName);
 			return;
 		}
 
@@ -565,32 +575,68 @@ static void saveInjectPokemon(uint8_t* save, const SAV_Pokemon* pkm, uint8_t ind
 	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (index) * sizeName;
 
+	bool hasOTTerm = false;
 	for (uint8_t i = 0; i < sizeName; i++)
+	{
 		pkmbuf[i] = pkm->nameOT[i];
-	if (sizeName > 0) pkmbuf[sizeName-1] = 0x50;
+		if (pkmbuf[i] == 0x50) hasOTTerm = true;
+	}
+	if (!hasOTTerm && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
 
 	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
 
+	bool hasNKTerm = false;
 	for (uint8_t i = 0; i < sizeName; i++)
+	{
 		pkmbuf[i] = pkm->nameNK[i];
-	if (sizeName > 0) pkmbuf[sizeName-1] = 0x50;
+		if (pkmbuf[i] == 0x50) hasNKTerm = true;
+	}
+	if (!hasNKTerm && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
+}
+
+static bool saveIsValidPokemonList(const uint8_t* save, uint32_t listOffset, uint8_t sizePkm, uint8_t capacity, bool isGen2, bool isBank)
+{
+	uint8_t count = save[listOffset];
+	if (count > capacity) return false;
+	if (save[listOffset + 1 + count] != 0xFF) return false;
+
+	for (uint8_t i = 0; i < count; i++)
+	{
+		uint8_t mark = save[listOffset + 1 + i];
+		if (mark == 0x00 || mark == 0xFF) return false;
+		if (isGen2)
+		{
+			if (mark > PKM_COUNT && mark != 0xFD) return false;
+		}
+		else
+		{
+			uint8_t nat = pokedexGetNational(mark);
+			if (nat == 0) return false;
+			if (!isBank && nat > SPECIES_MEW) return false;
+		}
+	}
+	return true;
 }
 
 /**
  * @brief Reads the data from a save to a structure.
  * @param[in] save The savedata buffer.
- * @param[out] pkmList The PokÃ©mon list to populate.
+ * @param[out] pkmList The Pokémon list to populate.
  * @param listOffset The offset of the list.
- * @param sizePkm The size of a PokÃ©mon struct (pk1).
+ * @param sizePkm The size of a Pokémon struct (pk1).
  * @param sizeName The size of a name.
  * @param capacity The capacity of the list.
  */
 static void saveExtractPokemonList(const uint8_t* save, SAV_PokemonList* pkmList, uint32_t listOffset, uint8_t sizePkm, uint8_t sizeName, uint8_t capacity)
 {
-	pkmList->count = save[listOffset];
-	if (pkmList->count > capacity || save[listOffset + 1] == 0xFF || save[listOffset + 1] == 0x00)
+	bool isGen2 = (sizePkm == 0x20);
+	bool isBank = (capacity == POKEMON_LIST_MAX_COUNT);
+	if (saveIsValidPokemonList(save, listOffset, sizePkm, capacity, isGen2, isBank))
+		pkmList->count = save[listOffset];
+	else
 		pkmList->count = 0;
+
 	pkmList->sizePkm = sizePkm;
 	pkmList->sizeName = sizeName;
 	pkmList->capacity = capacity;
@@ -844,11 +890,6 @@ Result saveWriteFile(const uint8_t* save, const char* path)
 	Result ret;
 	uint32_t bytesWritten = 0;
 
-	printf("Deleting old save file...");
-	ret = FS_DeleteFile(path, saveArchive);
-	if (R_FAILED(ret)) printf(" ERROR\n");
-	else printf(" OK\n");
-
 	printf("Writing save file...");
 	ret = FS_WriteFile(path, save, saveFileSize, saveArchive, &bytesWritten);
 	if (R_FAILED(ret)) printf(" ERROR\n");
@@ -861,8 +902,8 @@ static uint16_t saveGetBoxOffset(uint8_t i, uint16_t boxSize)
 {
 	if (vgame >= POKEMON_GOLD)
 	{
-		uint8_t split = (lgame == POKEMON_JP ? 6 : 7);
 		uint16_t stride = boxSize + 2;
+		uint8_t split = (lgame == POKEMON_JP ? 6 : 7);
 		return (i < split) ? (OFFSET_BOX_1 + i * stride) : (OFFSET_BOX_2 + (i - split) * stride);
 	}
 	else
@@ -879,6 +920,14 @@ static uint16_t saveGetCurrentBoxOffset(void)
 		return (vgame != POKEMON_CRYSTAL && lgame != POKEMON_JP) ? OFFSET_CURRENT_GS_FSAV : OFFSET_CURRENT_GSC_OTHER;
 	}
 	return (lgame == POKEMON_JP ? OFFSET_CURRENT_JSAV : OFFSET_CURRENT_FSAV);
+}
+
+static uint8_t saveCalcComplementChecksum(const uint8_t* data, uint16_t len)
+{
+	uint8_t sum = 0;
+	for (uint16_t i = 0; i < len; i++)
+		sum += data[i];
+	return (uint8_t)(~sum);
 }
 
 void saveReadData(const uint8_t* save, SAV_Game* sgame, SAV_GameLang lgame)
@@ -901,12 +950,22 @@ void saveReadData(const uint8_t* save, SAV_Game* sgame, SAV_GameLang lgame)
 	uint8_t currentBox = saveGetCurrentBox(save);
 
 	// In Gen I, bit 7 (0x80) of wCurrentBoxNum indicates whether inactive boxes in SRAM Banks 2 & 3
-	// have been initialized since starting a New Game. If 0, only currentBox is valid.
-	bool gen1BoxesInitialized = true;
+	// have been initialized by Bill's PC. However, external tools (or injected saves) may populate
+	// Boxes 1..12 without setting bit 7. In that case, sBox[currentBox] in Bank 2/3 matches sCurBoxData
+	// in Bank 1 (or the Bank 2/3 box checksums are valid). Conversely, if a player starts a New Game
+	// over an old save and saves before using the PC, sCurBoxData in Bank 1 is empty while Bank 2/3
+	// is desynchronized and belongs to the overwritten save.
+	bool gen1BanksTrusted = true;
 	if (vgame <= POKEMON_YELLOW)
 	{
 		uint16_t idxOff = (lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_JSAV : OFFSET_CURRENT_IDX_FSAV);
-		gen1BoxesInitialized = ((save[idxOff] & 0x80) != 0);
+		bool hasBit7 = ((save[idxOff] & 0x80) != 0);
+		if (!hasBit7)
+		{
+			uint16_t curSramOff = saveGetBoxOffset(currentBox, boxSize);
+			bool curSyncedWithSram = (memcmp(save + offsetCurrent, save + curSramOff, boxSize) == 0);
+			gen1BanksTrusted = curSyncedWithSram;
+		}
 	}
 
 	for (uint8_t i = 0; i < sgame->boxCount; i++)
@@ -918,57 +977,24 @@ void saveReadData(const uint8_t* save, SAV_Game* sgame, SAV_GameLang lgame)
 		uint16_t sramBoxOff = saveGetBoxOffset(i, boxSize);
 		uint16_t offset = (i == currentBox ? offsetCurrent : sramBoxOff);
 
-		if (vgame <= POKEMON_YELLOW && !gen1BoxesInitialized && i != currentBox)
+		if (vgame <= POKEMON_YELLOW && !gen1BanksTrusted && i != currentBox)
 		{
-			// Uninitialized SRAM bank from previous overwritten save: treat as empty
 			((uint8_t*)save)[sramBoxOff] = 0;
 			((uint8_t*)save)[sramBoxOff + 1] = 0xFF;
 		}
 		else if (vgame >= POKEMON_GOLD && i == currentBox)
 		{
-			// In Gen II, EmptyAllSRAMBoxes on New Game zeroes sBox1..14 (sramBoxOff) but leaves old data in sBox (offsetCurrent)
-			if (save[sramBoxOff] == 0 || save[sramBoxOff + 1] == 0xFF || save[sramBoxOff + 1] == 0x00)
+			// In Gen II, if sBox (offsetCurrent) is uninitialized/invalid or empty while sBoxN (sramBoxOff)
+			// has a valid list (e.g. edited by PKHeX or Stadium 2), prefer sramBoxOff.
+			bool curValid = saveIsValidPokemonList(save, offsetCurrent, sizePkm, sgame->boxCapacity, true, false);
+			bool sramValid = saveIsValidPokemonList(save, sramBoxOff, sizePkm, sgame->boxCapacity, true, false);
+			if (sramValid && (!curValid || (save[offsetCurrent] == 0 && save[sramBoxOff] > 0)))
 			{
-				((uint8_t*)save)[offsetCurrent] = 0;
-				((uint8_t*)save)[offsetCurrent + 1] = 0xFF;
+				offset = sramBoxOff;
 			}
 		}
 
 		saveExtractPokemonList(save, &sgame->boxes[i], offset, sizePkm, sgame->nameSize, sgame->boxCapacity);
-	}
-
-	// Purge leftover ghost Pokémon on brand-new 0-hour saves (New Game saved in bedroom)
-	uint8_t hours = (vgame >= POKEMON_GOLD) ? save[0x2054] : save[lgame == POKEMON_JP ? 0x2CA0 : 0x2CED];
-	uint8_t minutes = (vgame >= POKEMON_GOLD) ? save[0x2055] : save[lgame == POKEMON_JP ? 0x2CA2 : 0x2CEF];
-	if (hours == 0 && minutes <= 10)
-	{
-		uint16_t pTid = (vgame >= POKEMON_GOLD) ? ((save[0x2009] << 8) | save[0x200A]) : ((save[0x2605] << 8) | save[0x2606]);
-		for (uint8_t b = 0; b < sgame->boxCount; b++)
-		{
-			if (b == currentBox) continue;
-			bool boxCleaned = false;
-			for (uint8_t s = 0; s < sgame->boxes[b].capacity; s++)
-			{
-				SAV_Pokemon* pkm = &sgame->boxes[b].slots[s];
-				if (!saveIsPkmEmpty(pkm) && pkm->originalTID != pTid)
-				{
-					memset(pkm, 0, sizeof(SAV_Pokemon));
-					pkm->species = 0xFF;
-					pkm->speciesIndex = 0xFF;
-					pkm->moved = false;
-					boxCleaned = true;
-				}
-			}
-			if (boxCleaned)
-			{
-				sgame->boxes[b].count = 0;
-				for (uint8_t s = 0; s < sgame->boxes[b].capacity; s++)
-				{
-					if (!saveIsPkmEmpty(&sgame->boxes[b].slots[s]))
-						sgame->boxes[b].count++;
-				}
-			}
-		}
 	}
 }
 
@@ -978,6 +1004,7 @@ void saveWriteData(uint8_t* save, SAV_Game* sgame)
 	uint16_t offsetCurrent = saveGetCurrentBoxOffset();
 	uint16_t boxSize = BOX_SIZE(sgame->boxCapacity, sizePkm, sgame->nameSize);
 	uint8_t currentBox = saveGetCurrentBox(save);
+	bool anyStoredBoxHasPkm = false;
 
 	for (uint8_t iB = 0; iB < sgame->boxCount; iB++)
 	{
@@ -1017,25 +1044,25 @@ void saveWriteData(uint8_t* save, SAV_Game* sgame)
 			}
 		}
 
+		if (iB != currentBox && sgame->boxes[iB].count > 0)
+		{
+			anyStoredBoxHasPkm = true;
+		}
+
 		uint16_t boxOffset = saveGetBoxOffset(iB, boxSize);
-		if (vgame >= POKEMON_GOLD)
+		// Always write to the SRAM box slot (sBox1..12 in Gen I, sBox1..14 in Gen II)
+		// AND mirror the active box to offsetCurrent (sCurBoxData in Gen I, sBox in Gen II)
+		saveInjectPokemonList(save, &sgame->boxes[iB], boxOffset);
+		if (iB == currentBox)
 		{
-			// In Gen II, write to SRAM box slot AND mirror to active box if iB is the active box
-			saveInjectPokemonList(save, &sgame->boxes[iB], boxOffset);
-			if (iB == currentBox)
-			{
-				saveInjectPokemonList(save, &sgame->boxes[iB], offsetCurrent);
-			}
+			saveInjectPokemonList(save, &sgame->boxes[iB], offsetCurrent);
 		}
-		else
-		{
-			if (iB != currentBox && sgame->boxes[iB].count > 0)
-			{
-				uint16_t idxOff = (lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_JSAV : OFFSET_CURRENT_IDX_FSAV);
-				save[idxOff] |= 0x80;
-			}
-			saveInjectPokemonList(save, &sgame->boxes[iB], (iB == currentBox ? offsetCurrent : boxOffset));
-		}
+	}
+
+	if (vgame <= POKEMON_YELLOW && anyStoredBoxHasPkm)
+	{
+		uint16_t idxOff = (lgame == POKEMON_JP ? OFFSET_CURRENT_IDX_JSAV : OFFSET_CURRENT_IDX_FSAV);
+		save[idxOff] |= 0x80;
 	}
 
 	saveFixChecksum(save);
@@ -1124,6 +1151,30 @@ void saveFixChecksum(uint8_t* save)
 		}
 
 		save[chk_offset] = ~chk;
+
+		// Update Gen I SRAM Bank 2 & Bank 3 individual and bank-wide box checksums (matching PKSM Sav1::finishEditing)
+		uint8_t maxBoxes = (lgame == POKEMON_JP ? 8 : 12);
+		uint8_t halfBoxes = maxBoxes / 2;
+		uint8_t cap = (lgame == POKEMON_JP ? 30 : 20);
+		uint8_t nameSz = (lgame == POKEMON_JP ? 0x6 : 0xB);
+		uint16_t boxSz = BOX_SIZE(cap, 0x21, nameSz);
+		uint16_t bankBoxesSize = halfBoxes * boxSz;
+		uint16_t ofsBank2Sums = 0x4000 + bankBoxesSize;
+		uint16_t ofsBank3Sums = 0x6000 + bankBoxesSize;
+
+		for (uint8_t box = 0; box < maxBoxes; box++)
+		{
+			uint16_t bStart = (box < halfBoxes)
+				? (0x4000 + box * boxSz)
+				: (0x6000 + (box - halfBoxes) * boxSz);
+			uint8_t bSum = saveCalcComplementChecksum(save + bStart, boxSz);
+			if (box < halfBoxes)
+				save[ofsBank2Sums + 1 + box] = bSum;
+			else
+				save[ofsBank3Sums + 1 + (box - halfBoxes)] = bSum;
+		}
+		save[ofsBank2Sums] = saveCalcComplementChecksum(save + 0x4000, bankBoxesSize);
+		save[ofsBank3Sums] = saveCalcComplementChecksum(save + 0x6000, bankBoxesSize);
 	}
 }
 

@@ -9,6 +9,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 AM_TitleMediaEntry titleEntry;
 
@@ -159,15 +160,18 @@ static void TS_LoadSinglePreview(u32 idx)
 		p->tid = (previewBuf[0x2009] << 8) | previewBuf[0x200A];
 		memcpy(p->trainerName, previewBuf + 0x200B, isJP ? 6 : 11);
 		p->trainerName[10] = 0x50;
-		p->hours = previewBuf[0x2054];
-		p->minutes = previewBuf[0x2055];
+		uint16_t timeOff = isJP ? 0x2034 : (isCrystal ? 0x2052 : 0x2053);
+		uint16_t h16 = ((uint16_t)previewBuf[timeOff] << 8) | previewBuf[timeOff + 1];
+		p->hours = (h16 > 999 ? 999 : h16);
+		p->minutes = previewBuf[timeOff + 2];
 		if (isCrystal)
 		{
-			p->gender = (previewBuf[isJP ? 0x3E4D : 0x3E3D] & 1);
+			p->gender = (previewBuf[isJP ? 0x8000 : 0x3E3D] & 1);
 		}
-		uint16_t moneyOff = isJP ? (isCrystal ? 0x23CE : 0x23CD) : (isCrystal ? 0x23DC : 0x23DB);
-		p->money = decodeBCD3(previewBuf + moneyOff);
-		uint16_t badgeOff = isJP ? (isCrystal ? 0x23D7 : 0x23D6) : (isCrystal ? 0x23E5 : 0x23E4);
+		uint16_t moneyOff = isJP ? (isCrystal ? 0x23BE : 0x23BC) : (isCrystal ? 0x23DC : 0x23DB);
+		p->money = ((uint32_t)previewBuf[moneyOff] << 16) | ((uint32_t)previewBuf[moneyOff + 1] << 8) | previewBuf[moneyOff + 2];
+		if (p->money > 999999) p->money = 999999;
+		uint16_t badgeOff = isJP ? (isCrystal ? 0x23C7 : 0x23C5) : (isCrystal ? 0x23E5 : 0x23E4);
 		p->badgesJohto = previewBuf[badgeOff];
 		p->badgesKanto = previewBuf[badgeOff + 1];
 		uint16_t dexOff = isJP ? (isCrystal ? 0x29AA : 0x29CE) : (isCrystal ? 0x2A27 : 0x2A4C);
@@ -337,13 +341,20 @@ static void TS_DrawBottomScreen(void)
 			{
 				renderDrawRect(ix - 2, iy - 2, 52, 52, RENDER_RGBA(0xF8, 0xD0, 0x30, 0xFF));
 			}
-			renderDrawImage(titleIcons[idx], ix, iy, 1.0f, 1.0f);
+			if (titleList[idx].smdh)
+			{
+				renderDrawImage(titleIcons[idx], ix, iy, 1.0f, 1.0f);
+			}
+			else
+			{
+				gfxDrawCartridgeIcon(ix, iy, previews[idx].version);
+			}
 		}
 	}
 
-	// Trainer Card centered below dock (x = 80, y = 62, size 160x144)
+	// Trainer Card centered below dock (x = 80, y = 60, size 160x144)
 	int16_t cx = 80;
-	int16_t cy = 62;
+	int16_t cy = 60;
 	renderDrawRect(cx - 4, cy - 2, 168, 148, RENDER_RGBA(0x38, 0x3E, 0x50, 0xFF));
 	gfxDrawTrainerCardBg(cx, cy, cur->version, cur->gender);
 
@@ -481,14 +492,28 @@ static void TS_DrawBottomScreen(void)
 		}
 	}
 
-	// Bottom footer bar: "A:ABRIR   B:SALIR" properly centered inside a 24px tall panel (y=212..236)
-	static const char8_t ftr[] = {
-		0x80, 0x9C, 0x80, 0x81, 0x91, 0x88, 0x91, 0x7F, 0x7F, 0x7F,
-		0x81, 0x9C, 0x92, 0x80, 0x8B, 0x88, 0x91, 0x50
-	};
-	renderDrawRect(64, 212, 192, 24, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(64, 212, 22, 1);
-	fontDrawString8(92, 220, ftr);
+	// Bottom footer bar with retro Game Boy button boxes inside a 32px panel (y=207..238)
+	renderDrawRect(40, 207, 240, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(40, 207, 28, 2);
+
+	// Button 1: [► A: ABRIR] (x=52..153, y=215..230)
+	renderDrawRect(52, 215, 102, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	renderDrawRect(52, 215, 102, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(52, 230, 102, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(52, 215, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	renderDrawRect(153, 215, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	fontDrawChar8(60, 219, 0xED); // ►
+	fontConvertString(buf, "A: ABRIR");
+	fontDrawString8(72, 219, buf);
+
+	// Button 2: [B: SALIR] (x=166..267, y=215..230)
+	renderDrawRect(166, 215, 102, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	renderDrawRect(166, 215, 102, 1, RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	renderDrawRect(166, 230, 102, 1, RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	renderDrawRect(166, 215, 1, 16, RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	renderDrawRect(267, 215, 1, 16, RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	fontConvertString(buf, "B: SALIR");
+	fontDrawString8(185, 219, buf);
 }
 
 bool TS_Loop(void)
@@ -524,6 +549,19 @@ bool TS_Loop(void)
 			    touch.px >= 88 && touch.px <= 236 && touch.py >= 166 && touch.py <= 204)
 			{
 				tcShowKantoBadges = !tcShowKantoBadges;
+			}
+			else if (touch.py >= 210 && touch.py <= 236)
+			{
+				if (touch.px >= 50 && touch.px <= 156)
+				{
+					tsReturn = true;
+					break;
+				}
+				else if (touch.px >= 164 && touch.px <= 270)
+				{
+					tsReturn = false;
+					break;
+				}
 			}
 		}
 

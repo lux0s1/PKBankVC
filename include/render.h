@@ -72,9 +72,29 @@ void renderDrawImage(C2D_Image img, float x, float y, float scaleX, float scaleY
 void renderDrawImagePart(C2D_Image img, float x, float y, int sx, int sy, int sw, int sh);
 
 /**
+ * @brief Draws a part of an image scaled by (scaleX, scaleY).
+ */
+void renderDrawImagePartScaled(C2D_Image img, float x, float y, int sx, int sy, int sw, int sh, float scaleX, float scaleY);
+
+/**
  * @brief Draws a solid rectangle.
  */
 void renderDrawRect(float x, float y, float w, float h, u32 color);
+
+/**
+ * @brief Captures native top and bottom 3DS framebuffers to BMP files in sdmc:/pk/snapshots/.
+ */
+Result renderSaveScreenshot(const char* filenamePrefix);
+
+/**
+ * @brief Checks if auto_test.flag exists in /pk/ or sdmc:/pk/.
+ */
+bool renderAutoTestFlagPresent(void);
+
+/**
+ * @brief Removes auto_test.flag from /pk/ or sdmc:/pk/.
+ */
+void renderAutoTestFlagRemove(void);
 
 #ifdef __cplusplus
 }

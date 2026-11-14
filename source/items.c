@@ -74,7 +74,41 @@ uint16_t bankStoreCountNational(void)
 void bankStoreScanAll(void)
 {
 	// Scan active game's Pokédex Seen/Owned bitmasks
-	// Scan all 20 Bank boxes
+	const uint8_t* gameOwned = saveGetPokedexOwned();
+	const uint8_t* gameSeen = saveGetPokedexSeen();
+	uint16_t maxGameSp = (vgame >= POKEMON_GOLD ? 251 : 151);
+	if (gameOwned && gameSeen)
+	{
+		for (uint16_t sp = 1; sp <= maxGameSp; sp++)
+		{
+			uint8_t bit = (uint8_t)(sp - 1);
+			bool isOwn = ((gameOwned[bit / 8] >> (bit % 8)) & 1) != 0;
+			bool isSeen = ((gameSeen[bit / 8] >> (bit % 8)) & 1) != 0 || isOwn;
+			if (isOwn)
+			{
+				bankStoreRecordSpecies((uint8_t)sp, vgame);
+			}
+			else if (isSeen)
+			{
+				bankStore.dexSeen[bit / 8] |= (1 << (bit % 8));
+			}
+		}
+	}
+
+	// Scan active game's valid PC boxes
+	for (uint8_t b = 0; b < sgame.boxCount; b++)
+	{
+		for (uint8_t s = 0; s < sgame.boxes[b].capacity; s++)
+		{
+			const SAV_Pokemon* pkm = &sgame.boxes[b].slots[s];
+			if (!saveIsPkmEmpty(pkm) && !pkm->isEgg)
+			{
+				bankStoreRecordSpecies(pkm->nationalDex, vgame);
+			}
+		}
+	}
+
+	// Scan all Bank boxes
 	for (uint8_t b = 0; b < sbank.boxCount; b++)
 	{
 		for (uint8_t s = 0; s < sbank.boxes[b].capacity; s++)
@@ -99,7 +133,7 @@ void bankStoreLoad(void)
 {
 	memset(&bankStore, 0, sizeof(BankStoreData));
 	bankStore.magic = POKEDEX_BIN_MAGIC;
-	bankStore.version = 3;
+	bankStore.version = 4;
 
 	FILE* fp = fopen(POKEDEX_BIN_PATH, "rb");
 	if (fp)
@@ -111,12 +145,6 @@ void bankStoreLoad(void)
 		if (r >= sizeof(uint32_t) * 2 && tmp.magic == POKEDEX_BIN_MAGIC)
 		{
 			memcpy(bankStore.itemCounts, tmp.itemCounts, sizeof(bankStore.itemCounts));
-			if (tmp.version >= 2)
-			{
-				memcpy(bankStore.dexSeen, tmp.dexSeen, sizeof(bankStore.dexSeen));
-				memcpy(bankStore.dexOwned, tmp.dexOwned, sizeof(bankStore.dexOwned));
-				memcpy(bankStore.dexOrigin, tmp.dexOrigin, sizeof(bankStore.dexOrigin));
-			}
 			if (tmp.version >= 3)
 			{
 				bankStore.mysteryGiftClaimed = tmp.mysteryGiftClaimed;
@@ -124,6 +152,8 @@ void bankStoreLoad(void)
 		}
 	}
 
+	// Always rebuild dexSeen and dexOwned cleanly from the active game save + bank boxes
+	// so switching saves via Checkpoint or starting a New Game never shows phantom species!
 	bankStoreScanAll();
 }
 

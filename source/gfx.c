@@ -444,3 +444,104 @@ void gfxDrawEggSprite(int16_t x, int16_t y)
 {
 	renderDrawImage(imgEggFront, x, y, 1.0f, 1.0f);
 }
+
+void gfxDrawCartridgeIcon(int16_t x, int16_t y, uint8_t version)
+{
+	if (version < POKEMON_RED || version > POKEMON_CRYSTAL) version = POKEMON_RED;
+
+	u32 cartCol   = RENDER_RGBA(0xD8, 0x28, 0x20, 0xFF);
+	u32 cartShade = RENDER_RGBA(0x98, 0x18, 0x14, 0xFF);
+	if (version == POKEMON_BLUE)        { cartCol = RENDER_RGBA(0x20, 0x58, 0xD8, 0xFF); cartShade = RENDER_RGBA(0x14, 0x38, 0x98, 0xFF); }
+	else if (version == POKEMON_GREEN)  { cartCol = RENDER_RGBA(0x28, 0x98, 0x38, 0xFF); cartShade = RENDER_RGBA(0x18, 0x68, 0x24, 0xFF); }
+	else if (version == POKEMON_YELLOW) { cartCol = RENDER_RGBA(0xF0, 0xC0, 0x18, 0xFF); cartShade = RENDER_RGBA(0xB8, 0x88, 0x08, 0xFF); }
+	else if (version == POKEMON_GOLD)   { cartCol = RENDER_RGBA(0xC8, 0x98, 0x24, 0xFF); cartShade = RENDER_RGBA(0x88, 0x64, 0x10, 0xFF); }
+	else if (version == POKEMON_SILVER) { cartCol = RENDER_RGBA(0x90, 0x9C, 0xAC, 0xFF); cartShade = RENDER_RGBA(0x5C, 0x66, 0x76, 0xFF); }
+	else if (version == POKEMON_CRYSTAL){ cartCol = RENDER_RGBA(0x48, 0xB8, 0xE8, 0xFF); cartShade = RENDER_RGBA(0x24, 0x78, 0xA8, 0xFF); }
+
+	// 1. Cartridge 48x48 shell with authentic GB top right corner notch & grip ribs
+	renderDrawRect(x, y, 48, 48, RENDER_RGBA(0x14, 0x18, 0x20, 0xFF));
+	renderDrawRect(x + 2, y + 2, 44, 44, cartCol);
+	renderDrawRect(x + 2, y + 43, 44, 3, cartShade);
+	// Molded top header & grip lines
+	renderDrawRect(x + 6, y + 3, 36, 6, cartShade);
+	renderDrawRect(x + 10, y + 4, 28, 1, RENDER_RGBA(0xFF, 0xFF, 0xFF, 0x55));
+	renderDrawRect(x + 10, y + 6, 28, 1, RENDER_RGBA(0xFF, 0xFF, 0xFF, 0x55));
+	// Side grip notches
+	renderDrawRect(x + 1, y + 16, 1, 20, cartShade);
+	renderDrawRect(x + 46, y + 16, 1, 20, cartShade);
+
+	// 2. Cartridge Label Frame (x+4..x+43, y+10..y+43 -> 40x34 outer, 38x32 inner at x+5, y+11)
+	renderDrawRect(x + 4, y + 10, 40, 34, RENDER_RGBA(0x18, 0x1C, 0x24, 0xFF));
+	int16_t lx = x + 5;
+	int16_t ly = y + 11;
+
+	// 3. Pixel-Art Original Cover Artwork inside the 38x32 label
+	if (version == POKEMON_RED)
+	{
+		renderDrawRect(lx, ly, 38, 32, RENDER_RGBA(0xF8, 0xF4, 0xF0, 0xFF));
+		renderDrawRect(lx, ly, 38, 9, RENDER_RGBA(0xD8, 0x28, 0x20, 0xFF));
+		renderDrawRect(lx, ly + 28, 38, 4, RENDER_RGBA(0xD8, 0x28, 0x20, 0xFF));
+		// Charizard pixel-art sprite (56x56 at 0.42f = 23.5x23.5)
+		renderDrawImagePartScaled(titleRbPkm, lx + 8, ly + 7, 2 * 56, 0, 56, 56, 0.42f, 0.42f);
+		// Official Pokémon Logo from title screen (136x48 at 0.25f = 34x12)
+		renderDrawImagePartScaled(titleScreens[POKEMON_RED], lx + 2, ly + 1, 12, 8, 136, 48, 0.25f, 0.22f);
+	}
+	else if (version == POKEMON_BLUE)
+	{
+		renderDrawRect(lx, ly, 38, 32, RENDER_RGBA(0xF0, 0xF6, 0xF8, 0xFF));
+		renderDrawRect(lx, ly, 38, 9, RENDER_RGBA(0x20, 0x58, 0xD8, 0xFF));
+		renderDrawRect(lx, ly + 28, 38, 4, RENDER_RGBA(0x20, 0x58, 0xD8, 0xFF));
+		// Blastoise pixel-art sprite (index 8 in titleRbPkm)
+		renderDrawImagePartScaled(titleRbPkm, lx + 8, ly + 7, 8 * 56, 0, 56, 56, 0.42f, 0.42f);
+		renderDrawImagePartScaled(titleScreens[POKEMON_BLUE], lx + 2, ly + 1, 12, 8, 136, 48, 0.25f, 0.22f);
+	}
+	else if (version == POKEMON_GREEN)
+	{
+		renderDrawRect(lx, ly, 38, 32, RENDER_RGBA(0xF0, 0xF8, 0xF0, 0xFF));
+		renderDrawRect(lx, ly, 38, 9, RENDER_RGBA(0x28, 0x98, 0x38, 0xFF));
+		renderDrawRect(lx, ly + 28, 38, 4, RENDER_RGBA(0x28, 0x98, 0x38, 0xFF));
+		// Scyther/Venusaur pixel-art sprite
+		renderDrawImagePartScaled(titleRbPkm, lx + 8, ly + 7, 5 * 56, 0, 56, 56, 0.42f, 0.42f);
+		renderDrawImagePartScaled(titleScreens[POKEMON_GREEN], lx + 2, ly + 1, 12, 8, 136, 48, 0.25f, 0.22f);
+	}
+	else if (version == POKEMON_YELLOW)
+	{
+		// Full Yellow cover art (Pikachu + ¡Pika! + Pokémon logo) scaled to 38x32
+		renderDrawImagePartScaled(titleScreens[POKEMON_YELLOW], lx, ly, 0, 4, 160, 132, 38.0f / 160.0f, 32.0f / 132.0f);
+	}
+	else if (version == POKEMON_GOLD)
+	{
+		// Gold sky & clouds background + Ho-Oh + Gold Pokémon logo
+		renderDrawImagePartScaled(titleScreens[POKEMON_GOLD], lx, ly, 0, 4, 160, 132, 38.0f / 160.0f, 32.0f / 132.0f);
+		if (frontGs.tex)
+		{
+			// Full color Ho-Oh (#250 -> idx 249: col 9, row 15)
+			renderDrawImagePartScaled(frontGs, lx + 9, ly + 10, 9 * 56, 15 * 56, 56, 56, 0.38f, 0.38f);
+		}
+		else
+		{
+			renderDrawImagePartScaled(titleSprites, lx + 6, ly + 12, 4 * 64, 0, 64, 48, 0.42f, 0.42f);
+		}
+	}
+	else if (version == POKEMON_SILVER)
+	{
+		// Silver sky & clouds background + Lugia + Silver Pokémon logo
+		renderDrawImagePartScaled(titleScreens[POKEMON_SILVER], lx, ly, 0, 4, 160, 132, 38.0f / 160.0f, 32.0f / 132.0f);
+		if (frontGs.tex)
+		{
+			// Full color Lugia (#249 -> idx 248: col 8, row 15)
+			renderDrawImagePartScaled(frontGs, lx + 9, ly + 10, 8 * 56, 15 * 56, 56, 56, 0.38f, 0.38f);
+		}
+		else
+		{
+			renderDrawImagePartScaled(titleSprites, lx + 4, ly + 13, 0, 48, 80, 40, 0.38f, 0.38f);
+		}
+	}
+	else
+	{
+		// Crystal cover art + Suicune (#245 -> idx 244 in pkmAnim2)
+		renderDrawImagePartScaled(titleScreens[POKEMON_CRYSTAL], lx, ly, 0, 4, 160, 132, 38.0f / 160.0f, 32.0f / 132.0f);
+		uint8_t idx = 245 - 129; // 116 -> pairCol 4, pairRow 14
+		renderDrawImagePartScaled(pkmAnim2, lx + 9, ly + 11, (4 * 2) * 56, 14 * 56, 56, 56, 0.38f, 0.38f);
+	}
+}

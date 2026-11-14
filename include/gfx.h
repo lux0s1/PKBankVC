@@ -53,3 +53,4 @@ void gfxDrawDiplomaBg(int16_t x, int16_t y, bool isGen2);
 void gfxDrawShinyStar(int16_t x, int16_t y);
 void gfxDrawShinyStarSmall(int16_t x, int16_t y);
 void gfxDrawEggSprite(int16_t x, int16_t y);
+void gfxDrawCartridgeIcon(int16_t x, int16_t y, uint8_t version);

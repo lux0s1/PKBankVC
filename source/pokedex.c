@@ -301,7 +301,15 @@ void pokedexAddOwned(uint8_t species)
 	uint8_t maxSpecies = (vgame >= POKEMON_GOLD ? SPECIES_CELEBI : SPECIES_MEW);
 	if (species > SPECIES_MISSINGNO && species <= maxSpecies)
 	{
-		setOffsetBit(saveGetPokedexOwned(), 0, species-1, true);
+		uint8_t* owned = saveGetPokedexOwned();
+		uint8_t* seen = saveGetPokedexSeen();
+		setOffsetBit(owned, 0, species-1, true);
+		if (vgame >= POKEMON_GOLD && species == SPECIES_UNOWN && seen)
+		{
+			if (seen[0x1F + 28] == 0) seen[0x1F + 28] = 1;
+			for (int i = 1; i <= 26; i++)
+				seen[0x1F + i] = (uint8_t)i;
+		}
 	}
 }
 
@@ -310,7 +318,12 @@ void pokedexAddSeen(uint8_t species)
 	uint8_t maxSpecies = (vgame >= POKEMON_GOLD ? SPECIES_CELEBI : SPECIES_MEW);
 	if (species > SPECIES_MISSINGNO && species <= maxSpecies)
 	{
-		setOffsetBit(saveGetPokedexSeen(), 0, species-1, true);
+		uint8_t* seen = saveGetPokedexSeen();
+		setOffsetBit(seen, 0, species-1, true);
+		if (vgame >= POKEMON_GOLD && species == SPECIES_UNOWN && seen)
+		{
+			if (seen[0x1F + 28] == 0) seen[0x1F + 28] = 1;
+		}
 	}
 }
 

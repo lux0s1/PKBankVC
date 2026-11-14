@@ -5,6 +5,7 @@ romfs/gfx/
 *.smdh
 !assets/icon.smdh
 *.cia
+*.cxi
 *.zip
 release/
 *.map

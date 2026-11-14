@@ -65,6 +65,8 @@ Result FS_WriteFile(const char* path, const void* src, u64 size, FS_Archive arch
 	r(" > FSUSER_OpenFile: %lx\n", ret);
 	if (R_FAILED(ret)) return ret;
 
+	FSFILE_SetSize(fileHandle, size);
+
 	if (R_SUCCEEDED(ret))
 	{
 		ret = FSFILE_Write(fileHandle, bytesWritten, 0L, src, size, FS_WRITE_FLUSH);

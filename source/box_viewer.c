@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define BOX_ROW_PKM_COUNT (8)
 #define BOX_COL_PKM_COUNT (4)
@@ -260,6 +261,15 @@ static inline bool touchWithin(s16 px, s16 py, s16 x, s16 y, s16 w, s16 h)
 	return (px >= x && py >= y) && (px <= x + w && py <= y + h);
 }
 
+static void drawRetroButton(int16_t x, int16_t y, int16_t w, int16_t h, u32 fillCol, u32 borderCol)
+{
+	renderDrawRect(x, y, w, h, fillCol);
+	renderDrawRect(x, y, w, 1, borderCol);
+	renderDrawRect(x, y + h - 1, w, 1, borderCol);
+	renderDrawRect(x, y, 1, h, borderCol);
+	renderDrawRect(x + w - 1, y, 1, h, borderCol);
+}
+
 static void boxViewerDrawTop(void);
 static void boxViewerDrawBottom(void);
 
@@ -307,6 +317,8 @@ void boxViewerInitialize(void)
 	bagStatusMsg[0] = 0x50;
 	dexCursor = 1;
 	dexScroll = 0;
+
+	boxExitRequested = false;
 
 	cursor.pc.inBank = false;
 	cursor.pc.box = saveGetCurrentBox(save);
@@ -753,28 +765,37 @@ static void bagViewerDrawTop(void)
 
 	if (bagDeleteConfirm)
 	{
-		renderDrawRect(88, 102, 224, 60, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		gfxDrawPanel(88, 102, 26, 5);
+		renderDrawRect(88, 98, 224, 68, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		gfxDrawPanel(88, 98, 26, 6);
 		fontConvertString(buf, "ELIMINAR EL OBJETO?");
-		fontDrawString8(120, 114, buf);
-		fontDrawString8(136, 126, itemGetName(bagDeleteTargetG2, false));
-		fontConvertString(buf, "A: SI      B: NO");
-		fontDrawString8(132, 142, buf);
+		fontDrawString8(120, 110, buf);
+		fontDrawString8(136, 123, itemGetName(bagDeleteTargetG2, false));
+		drawRetroButton(108, 138, 84, 16, RENDER_RGBA(0xEC, 0xDC, 0xDC, 0xFF), RENDER_RGBA(0x98, 0x78, 0x78, 0xFF));
+		fontConvertString(buf, "A: SI");
+		fontDrawString8(130, 142, buf);
+		drawRetroButton(208, 138, 84, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF), RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+		fontConvertString(buf, "B: NO");
+		fontDrawString8(230, 142, buf);
 		return;
 	}
 
 	if (bagCatalogMode)
 	{
-		renderDrawRect(104, 100, 240, 60, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		gfxDrawPanel(104, 100, 28, 5);
+		renderDrawRect(104, 98, 240, 68, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		gfxDrawPanel(104, 98, 28, 6);
 		fontConvertString(buf, "AGREGAR AL ALMACEN:");
-		fontDrawString8(120, 110, buf);
-		gfxDrawFullArrow(120, 126);
-		fontDrawString8(132, 126, itemGetName(bagCatalogItem, false));
-		fontDrawChar8(240, 126, 0xF1);
-		fontDrawFromRightUInt32(256, 126, bankStore.itemCounts[bagCatalogItem]);
-		fontConvertString(buf, "A: +1           B: CERRAR");
-		fontDrawString8(120, 142, buf);
+		fontDrawString8(120, 108, buf);
+		drawRetroButton(116, 120, 216, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		gfxDrawFullArrow(120, 124);
+		fontDrawString8(130, 124, itemGetName(bagCatalogItem, false));
+		fontDrawChar8(260, 124, 0xF1);
+		fontDrawFromRightUInt32(284, 124, bankStore.itemCounts[bagCatalogItem]);
+		drawRetroButton(116, 139, 96, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF), RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+		fontConvertString(buf, "A: +1");
+		fontDrawString8(144, 143, buf);
+		drawRetroButton(220, 139, 112, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF), RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+		fontConvertString(buf, "B: CERRAR");
+		fontDrawString8(240, 143, buf);
 		return;
 	}
 	else
@@ -834,11 +855,11 @@ static void bagViewerDrawBottom(void)
 	char8_t buf[32];
 	renderDrawRect(0, 0, 320, 240, getGameThemeBgColor());
 
-	// Left Column: Game Pocket (x=0, w=152)
-	renderDrawRect(0, 0, 152, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(0, 0, 17, 2);
-	renderDrawRect(0, 32, 152, 208, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(0, 32, 17, 24);
+	// Left Column: Game Pocket (x=0, w=160; inner x=8..151)
+	renderDrawRect(0, 0, 160, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(0, 0, 18, 2);
+	renderDrawRect(0, 32, 160, 208, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(0, 32, 18, 24);
 	bool isGen1 = (vgame <= POKEMON_YELLOW);
 	if (isGen1)
 	{
@@ -861,31 +882,35 @@ static void bagViewerDrawBottom(void)
 		gameItemGetSlot(gPocket, idx, &id, &qty);
 		int16_t ry = 46 + i * 22;
 		if (!bagInStore && idx == bagGameCursor)
-			gfxDrawFullArrow(6, ry);
-		fontDrawString8(14, ry, itemGetName(id, isGen1));
+			gfxDrawFullArrow(8, ry);
+		fontDrawString8(16, ry, itemGetName(id, isGen1));
 		if (gPocket != ITEM_POCKET_KEY && itemCanStoreInBank(id, isGen1))
 		{
-			fontDrawChar8(114, ry, 0xF1); // ×
-			fontDrawFromRightUInt32(130, ry, qty);
+			fontDrawChar8(122, ry, 0xF1); // ×
+			fontDrawFromRightUInt32(138, ry, qty);
 		}
 	}
 
-	// Right Column: Bank Store (x=164, w=152)
-	renderDrawRect(164, 0, 152, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(164, 0, 17, 2);
-	renderDrawRect(164, 32, 152, 208, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(164, 32, 17, 24);
+	// Right Column: Bank Store (x=160, w=160; inner x=168..311)
+	renderDrawRect(160, 0, 160, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(160, 0, 18, 2);
+	renderDrawRect(160, 32, 160, 208, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(160, 32, 18, 24);
 	fontConvertString(buf, "ALMACENAMIENTO");
 	fontDrawString8(172, 12, buf);
 
 	uint8_t storeIds[256];
 	uint16_t sCount = buildStoreList(storeIds);
 
-	// Row 0 is ALWAYS anchored at top: "X: AGREGAR OBJ."
-	if (bagInStore && bagStoreCursor == 0)
-		gfxDrawFullArrow(170, 46);
+	// Row 0 is ALWAYS anchored at top as a retro action button: "X: AGREGAR OBJ."
+	bool addSel = (bagInStore && bagStoreCursor == 0);
+	drawRetroButton(168, 42, 144, 16,
+		addSel ? RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF),
+		addSel ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	if (addSel)
+		gfxDrawFullArrow(171, 46);
 	fontConvertString(buf, "X: AGREGAR OBJ.");
-	fontDrawString8(178, 46, buf);
+	fontDrawString8(181, 46, buf);
 
 	// Rows 1..7 (up to 7 items visible) scroll smoothly underneath
 	for (uint8_t i = 0; i < 7; i++)
@@ -894,12 +919,12 @@ static void bagViewerDrawBottom(void)
 		if (itemIdx >= sCount) break;
 		int16_t ry = 46 + (i + 1) * 22;
 		if (bagInStore && (itemIdx + 1) == bagStoreCursor)
-			gfxDrawFullArrow(170, ry);
+			gfxDrawFullArrow(168, ry);
 
 		uint8_t g2 = storeIds[itemIdx];
-		fontDrawString8(178, ry, itemGetName(g2, false));
-		fontDrawChar8(278, ry, 0xF1); // ×
-		fontDrawFromRightUInt32(294, ry, bankStore.itemCounts[g2]);
+		fontDrawString8(176, ry, itemGetName(g2, false));
+		fontDrawChar8(282, ry, 0xF1); // ×
+		fontDrawFromRightUInt32(298, ry, bankStore.itemCounts[g2]);
 	}
 }
 
@@ -1189,9 +1214,9 @@ static void dexViewerDrawTop(void)
 
 	fontSetWhite(false);
 
-	// Right Panel (216, 48, 128x144): Detailed Species Info, Types, Progress & Clean Shortcuts
-	renderDrawRect(216, 48, 128, 144, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(216, 48, 14, 16);
+	// Right Panel (212, 48, 136x144; inner x=220..339): Detailed Species Info, Types, Progress & Retro Buttons
+	renderDrawRect(212, 48, 136, 144, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(212, 48, 15, 16);
 
 	static const char8_t unkName[] = { 0xE3, 0xE3, 0xE3, 0xE3, 0xE3, 0x50 };
 	static const char8_t unkType[] = { 0xE3, 0xE3, 0xE3, 0x50 };
@@ -1199,49 +1224,67 @@ static void dexViewerDrawTop(void)
 	if (owned)
 	{
 		const PersonalInfo* pInfo = Personal(dexCursor);
-		fontDrawString8(226, 58, dataSpecies(dexCursor));
+		fontDrawString8(222, 58, dataSpecies(dexCursor));
 
 		fontConvertString(buf, "REGISTRADO");
-		fontDrawString8(226, 72, buf);
+		fontDrawString8(222, 70, buf);
 
-		fontDrawString8(226, 88, dataText(TEXT_TYPE1));
-		fontDrawString8(274, 88, dataType(pInfo->type1));
-		if (pInfo->type2 != pInfo->type1)
+		if (owned)
 		{
-			fontDrawString8(226, 100, dataText(TEXT_TYPE2));
-			fontDrawString8(274, 100, dataType(pInfo->type2));
+			fontDrawString8(222, 84, dataText(TEXT_TYPE1));
+			fontDrawChar8(262, 84, CHAR8_SLASH);
+			fontDrawString8(270, 84, dataType(pInfo->type1));
+			if (pInfo->type2 != pInfo->type1)
+			{
+				fontDrawString8(222, 96, dataText(TEXT_TYPE2));
+				fontDrawChar8(262, 96, CHAR8_SLASH);
+				fontDrawString8(270, 96, dataType(pInfo->type2));
+			}
 		}
 	}
 	else
 	{
-		fontDrawString8(226, 58, unkName);
+		fontDrawString8(222, 58, unkName);
 
 		fontConvertString(buf, "DESCONOCIDO");
-		fontDrawString8(226, 72, buf);
+		fontDrawString8(222, 70, buf);
 
-		fontDrawString8(226, 88, dataText(TEXT_TYPE1));
-		fontDrawString8(274, 88, unkType);
+		fontDrawString8(222, 84, dataText(TEXT_TYPE1));
+		fontDrawChar8(262, 84, CHAR8_SLASH);
+		fontDrawString8(270, 84, unkType);
 	}
 
 	fontConvertString(buf, "KANTO:");
-	fontDrawString8(226, 116, buf);
-	fontDrawPaddingUInt8(234, 126, bankStoreCountKanto());
-	fontDrawChar8(258, 126, CHAR8_SLASH);
-	fontDrawPaddingUInt8(266, 126, 151);
+	fontDrawString8(222, 110, buf);
+	fontDrawPaddingUInt8(230, 120, bankStoreCountKanto());
+	fontDrawChar8(254, 120, CHAR8_SLASH);
+	fontDrawPaddingUInt8(262, 120, 151);
 
 	fontConvertString(buf, "NACIONAL:");
-	fontDrawString8(226, 138, buf);
-	fontDrawPaddingUInt8(234, 148, totalOwn);
-	fontDrawChar8(258, 148, CHAR8_SLASH);
-	fontDrawPaddingUInt8(266, 148, 251);
+	fontDrawString8(222, 130, buf);
+	fontDrawPaddingUInt8(230, 140, totalOwn);
+	fontDrawChar8(254, 140, CHAR8_SLASH);
+	fontDrawPaddingUInt8(262, 140, 251);
 
-	if (saveIsGamePokedexComplete())
+	bool canDip = saveIsGamePokedexComplete();
+	drawRetroButton(222, 151, 114, 15,
+		canDip ? RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF),
+		canDip ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
+	if (canDip)
+	{
+		fontDrawChar8(226, 155, 0xED);
 		fontConvertString(buf, "A: DIPLOMA");
+		fontDrawString8(236, 155, buf);
+	}
 	else
-		fontConvertString(buf, "DIPLOMA: BLOQ.");
-	fontDrawString8(226, 162, buf);
+	{
+		fontConvertString(buf, "SIN DIPLOMA");
+		fontDrawString8(235, 155, buf);
+	}
+
+	drawRetroButton(222, 168, 114, 15, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF), RENDER_RGBA(0x78, 0x82, 0x96, 0xFF));
 	fontConvertString(buf, "B: VOLVER");
-	fontDrawString8(226, 174, buf);
+	fontDrawString8(243, 172, buf);
 }
 
 static void dexViewerDrawBottom(void)
@@ -1287,17 +1330,19 @@ static void dexViewerDrawBottom(void)
 	// Bottom Area Name panel (or Mystery Gift button if available)
 	if (bankStoreHas150Kanto() && !bankStoreIsMewClaimed())
 	{
-		renderDrawRect(24, 196, 272, 28, RENDER_RGBA(0xFF, 0xD0, 0x30, 0xFF));
+		renderDrawRect(24, 196, 272, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 		gfxDrawPanel(24, 196, 32, 2);
+		drawRetroButton(34, 204, 252, 16, RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(38, 208, 0xED);
 		fontConvertString(buf, "START/TOCAR: RECLAMAR MEW GF");
-		fontDrawString8(34, 206, buf);
+		fontDrawString8(48, 208, buf);
 	}
 	else
 	{
-		renderDrawRect(24, 196, 272, 28, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(24, 196, 272, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 		gfxDrawPanel(24, 196, 32, 2);
 		fontConvertString(buf, owned ? areaName : "AREA DESCONOCIDA");
-		fontDrawString8(40, 206, buf);
+		fontDrawString8(40, 208, buf);
 	}
 }
 
@@ -1329,6 +1374,13 @@ void boxViewerUpdate(void)
 	if (currentMode == VIEW_MODE_PKM_EDIT)
 	{
 		pkmEditorUpdate();
+		return;
+	}
+
+	if ((ks.held & (KEY_L | KEY_R)) && (ks.down & KEY_SELECT))
+	{
+		renderSaveScreenshot("manual_snap");
+		showBoxAlert("CAPTURA GUARDADA", "EN SDMC:/PK/SNAPSHOTS");
 		return;
 	}
 
@@ -1490,18 +1542,18 @@ void boxViewerUpdate(void)
 		touchHoldSourcePkm = NULL;
 
 		// Bottom shortcut bar touch handling:
-		if (touchWithin(px, py, 8, 200, 304, 32))
+		if (touchWithin(px, py, 4, 200, 312, 32))
 		{
 			if (!batchMode)
 			{
-				if (px < 80)
+				if (px <= 89)
 				{
 					bagCatalogMode = false;
 					bagDeleteConfirm = false;
 					currentMode = VIEW_MODE_BAG;
 					return;
 				}
-				else if (px <= 154)
+				else if (px <= 142)
 				{
 					batchMode = true;
 					batchSourceBox = cursor.box->box;
@@ -1510,7 +1562,7 @@ void boxViewerUpdate(void)
 					showBoxAlert("MODO MULTI ACTIVO", "TOCA POKEMON PARA MARCARLOS");
 					return;
 				}
-				else if (px <= 232)
+				else if (px <= 233)
 				{
 					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
 					{
@@ -1536,13 +1588,13 @@ void boxViewerUpdate(void)
 			}
 			else
 			{
-				if (px < 88)
+				if (px <= 88)
 				{
 					clearBatchSelection();
 					showBoxAlert("MODO MULTI CANCELADO", "SELECCION DESMARCADA");
 					return;
 				}
-				else if (px <= 228)
+				else if (px <= 224)
 				{
 					executeBatchMove();
 					return;
@@ -1751,38 +1803,47 @@ static void boxViewerDrawTop(void)
 	renderDrawRect(48, 40, 304, 160, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 	gfxDrawFrame(0, 0);
 
-	gfxDrawPanel(48 + 8, 40 + 64, 18, 10);
-	gfxDrawFolio(224, 112, 13, 10);
-	gfxDrawFolio(224, 40, 13, 8);
+	gfxDrawFolio(224, 112, 14, 10);
+	gfxDrawFolio(224, 40, 14, 7);
 
 	if ((cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm)) || cursor.sPkm)
 	{
 		SAV_Pokemon* pkm = (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm) ? cursor.vPkm : cursor.sPkm);
 
-		/** Species panel **/
-		gfxDrawPanel(52, 40, 7, 7);
+		/** Species sprite (56x56 at x=60..115, y=48..103) drawn BEFORE the 7x7 panel border **/
+		renderDrawRect(60, 48, 56, 56, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 		if (pkm->isEgg)
 			gfxDrawEggSprite(52 + 8, 40 + 8);
 		else
 			gfxDrawGamePokemonSprite(52 + 8, 40 + 8, pkm->nationalDex, vgame);
+	}
 
-		fontDrawString8(128, 48, pkm->nameNK);
+	/** Stats & Portrait Panels with clean shared horizontal border at y=104..111 **/
+	gfxDrawPanel(52, 104, 19, 10);
+	gfxDrawPanel(52, 40, 7, 7);
+	renderDrawRect(116, 104, 8, 8, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	fontDrawChar8(116, 104, 0x7A);
 
+	if ((cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm)) || cursor.sPkm)
+	{
+		SAV_Pokemon* pkm = (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm) ? cursor.vPkm : cursor.sPkm);
+
+		/** Nickname & Shiny Star (Row 1: y=46) **/
+		fontDrawString8(126, 46, pkm->nameNK);
 		if (saveIsPkmShiny(pkm))
 		{
-			gfxDrawShinyStar(208, 44);
+			gfxDrawShinyStar(210, 45);
 		}
 
-		/** Status **/
-		fontDrawString8(128, 60, dataText(TEXT_STATUS));
+		/** Status (Row 2: y=59, inline) **/
+		fontDrawString8(126, 59, dataText(TEXT_STATUS));
 		if (pkm->currentHP == 0)
 		{
-			fontDrawString8(184, 60, dataStatus(STATUS_KO));
+			fontDrawString8(182, 59, dataStatus(STATUS_KO));
 		}
 		else
 		{
 			uint8_t status;
-
 			switch (pkm->status)
 			{
 				case STATUS_ASLEEP: status = 2; break;
@@ -1792,70 +1853,75 @@ static void boxViewerDrawTop(void)
 				case STATUS_PARALYZED: status = 6; break;
 				default: status = 0; break;
 			}
-
-			fontDrawString8(184, 60, dataStatus(status));
+			fontDrawString8(182, 59, dataStatus(status));
 		}
 
-		/** OTrainer **/
-		fontDrawString8(128, 72, dataText(TEXT_OT));
-		fontDrawString8(144, 80, pkm->nameOT);
-		fontDrawChar8(128, 88, CHAR8_ID);
-		fontDrawChar8(136, 88, CHAR8_NO);
-		fontDrawChar8(144, 88, CHAR8_SLASH);
-		fontDrawPaddingUInt16(144, 96, pkm->originalTID);
+		/** OTrainer (Row 3: y=72, inline) & IDNo (Row 4: y=85, inline) **/
+		fontDrawString8(126, 72, dataText(TEXT_OT));
+		fontDrawString8(150, 72, pkm->nameOT);
+		fontDrawChar8(126, 85, CHAR8_ID);
+		fontDrawChar8(134, 85, CHAR8_NO);
+		fontDrawChar8(142, 85, CHAR8_SLASH);
+		fontDrawPaddingUInt16(150, 85, pkm->originalTID);
 
-		/** Life Bar **/
+		/** Level & Life Bar (Right Folio Top: x=228..343) **/
 		gfxDrawLevel(272, 44, pkm->level);
 		gfxDrawLifeBar(248, 54, pkm->currentHP, pkm->maxHP, false);
 
-		/** Types **/
-		fontDrawString8(232, 72, dataText(TEXT_TYPE1));
-		fontDrawString8(248, 80, dataType(pkm->types[0]));
+		/** Types (Inline right after '/', matching Pokedex style) **/
+		fontDrawString8(232, 74, dataText(TEXT_TYPE1));
+		fontDrawString8(280, 74, dataType(pkm->types[0]));
 		if (pkm->types[0] != pkm->types[1])
 		{
-			fontDrawString8(232, 88, dataText(TEXT_TYPE2));
-			fontDrawString8(248, 96, dataType(pkm->types[1]));
+			fontDrawString8(232, 86, dataText(TEXT_TYPE2));
+			fontDrawString8(280, 86, dataType(pkm->types[1]));
 		}
 
-		/** Moves **/
-		fontDrawString8(224, 112, dataText(TEXT_MOVE));
+		/** Moves (Right Folio Bottom: y=108..189) **/
+		fontDrawString8(228, 108, dataText(TEXT_MOVE));
 		for (uint8_t i = 0; i < 4; i++)
 		{
 			if (pkm->moves[i] != 0)
 			{
-				fontDrawString8(236, 128+i*16, dataMove(pkm->moves[i]));
-				fontDrawFromRightUInt32(304, 136+i*16, pkm->PPs[i]);
-				fontDrawChar8(312, 136+i*16, CHAR8_SLASH);
-				fontDrawFromRightUInt32(328, 136+i*16, PersonalMove(pkm->moves[i])->PP);
+				int16_t my = 119 + i * 19;
+				fontDrawString8(228, my, dataMove(pkm->moves[i]));
+				fontDrawFromRightUInt32(306, my + 8, pkm->PPs[i]);
+				fontDrawChar8(314, my + 8, CHAR8_SLASH);
+				fontDrawFromRightUInt32(330, my + 8, PersonalMove(pkm->moves[i])->PP);
 			}
 		}
 
-		/** Stats **/
-		fontDrawString8(64, 112, dataText(TEXT_HP));
-		fontDrawString8(64, 128, dataText(TEXT_ATTACK));
-		fontDrawString8(64, 144, dataText(TEXT_DEFENSE));
-		fontDrawString8(64, 160, dataText(TEXT_SPEED));
-		fontDrawString8(64, 176, dataText(TEXT_SPECIAL));
-		fontDrawString8(136, 112, dataText(TEXT_IV));
-		fontDrawString8(176, 112, dataText(TEXT_EV));
-		// Stats
-		fontDrawFromRightUInt32(104+16, 120, pkm->maxHP);
-		fontDrawFromRightUInt32(104+16, 136, pkm->ATK);
-		fontDrawFromRightUInt32(104+16, 152, pkm->DEF);
-		fontDrawFromRightUInt32(104+16, 168, pkm->SPE);
-		fontDrawFromRightUInt32(104+16, 184, pkm->SPC);
+		/** Stats Table (Left Panel: x=52..219, inner x=60..211, y=112..191) **/
+		fontDrawString8(146, 113, dataText(TEXT_IV));
+		fontDrawString8(184, 113, dataText(TEXT_EV));
+		renderDrawRect(60, 122, 150, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+
+		fontDrawString8(60, 126, dataText(TEXT_HP));
+		fontDrawString8(60, 139, dataText(TEXT_ATTACK));
+		fontDrawString8(60, 152, dataText(TEXT_DEFENSE));
+		fontDrawString8(60, 165, dataText(TEXT_SPEED));
+		fontDrawString8(60, 178, dataText(TEXT_SPECIAL));
+
+		// Stat Values (horizontally aligned on the same row as each label)
+		fontDrawFromRightUInt32(134, 126, pkm->maxHP);
+		fontDrawFromRightUInt32(134, 139, pkm->ATK);
+		fontDrawFromRightUInt32(134, 152, pkm->DEF);
+		fontDrawFromRightUInt32(134, 165, pkm->SPE);
+		fontDrawFromRightUInt32(134, 178, pkm->SPC);
+
 		// IVs
-		fontDrawFromRightUInt32(136+16, 120, pkm->IVs[STAT_HP]);
-		fontDrawFromRightUInt32(136+16, 136, pkm->IVs[STAT_ATTACK]);
-		fontDrawFromRightUInt32(136+16, 152, pkm->IVs[STAT_DEFENSE]);
-		fontDrawFromRightUInt32(136+16, 168, pkm->IVs[STAT_SPEED]);
-		fontDrawFromRightUInt32(136+16, 184, pkm->IVs[STAT_SPECIAL]);
+		fontDrawFromRightUInt32(160, 126, pkm->IVs[STAT_HP]);
+		fontDrawFromRightUInt32(160, 139, pkm->IVs[STAT_ATTACK]);
+		fontDrawFromRightUInt32(160, 152, pkm->IVs[STAT_DEFENSE]);
+		fontDrawFromRightUInt32(160, 165, pkm->IVs[STAT_SPEED]);
+		fontDrawFromRightUInt32(160, 178, pkm->IVs[STAT_SPECIAL]);
+
 		// EVs
-		fontDrawFromRightUInt32(160+40, 120, pkm->EVs[STAT_HP]);
-		fontDrawFromRightUInt32(160+40, 136, pkm->EVs[STAT_ATTACK]);
-		fontDrawFromRightUInt32(160+40, 152, pkm->EVs[STAT_DEFENSE]);
-		fontDrawFromRightUInt32(160+40, 168, pkm->EVs[STAT_SPEED]);
-		fontDrawFromRightUInt32(160+40, 184, pkm->EVs[STAT_SPECIAL]);
+		fontDrawFromRightUInt32(202, 126, pkm->EVs[STAT_HP]);
+		fontDrawFromRightUInt32(202, 139, pkm->EVs[STAT_ATTACK]);
+		fontDrawFromRightUInt32(202, 152, pkm->EVs[STAT_DEFENSE]);
+		fontDrawFromRightUInt32(202, 165, pkm->EVs[STAT_SPEED]);
+		fontDrawFromRightUInt32(202, 178, pkm->EVs[STAT_SPECIAL]);
 	}
 }
 
@@ -1867,58 +1933,50 @@ static void boxViewerDrawBottom(void)
 	boxDrawBox(&cursor.pc, 0, 0);
 	boxDrawBox(&cursor.bk, 176, 0);
 
-	// Bottom Shortcut Bar below both 5x4 boxes
+	// Bottom Shortcut Bar below both 5x4 boxes (x=4..315, inner x=12..307, inner y=208..223)
 	char8_t buf[32];
-	renderDrawRect(8, 200, 304, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(8, 200, 36, 2);
+	renderDrawRect(4, 200, 312, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(4, 200, 37, 2);
+
+	u32 btnFill = RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF);
+	u32 btnBord = RENDER_RGBA(0x78, 0x82, 0x96, 0xFF);
 
 	if (!batchMode)
 	{
-		renderDrawRect(80, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-		renderDrawRect(154, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-		renderDrawRect(232, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-
+		// 4 Retro Buttons matching Image 5/6 aesthetic
+		drawRetroButton(12, 208, 76, 16, btnFill, btnBord);
 		fontConvertString(buf, "X:MOCHILA");
-		fontDrawString8(12, 212, buf);
+		fontDrawString8(14, 212, buf);
 
-		// Multi button in authentic Game Boy panel style
-		renderDrawRect(84, 204, 66, 24, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF));
-		renderDrawRect(84, 204, 66, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(84, 227, 66, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(84, 204, 1, 24, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(149, 204, 1, 24, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		fontConvertString(buf, "[MULTI]");
-		fontDrawString8(94, 212, buf);
+		drawRetroButton(91, 208, 50, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontConvertString(buf, "MULTI");
+		fontDrawString8(96, 212, buf);
 
+		drawRetroButton(144, 208, 88, 16, btnFill, btnBord);
 		fontConvertString(buf, "START:EDIT");
-		fontDrawString8(158, 212, buf);
+		fontDrawString8(148, 212, buf);
 
+		drawRetroButton(235, 208, 72, 16, btnFill, btnBord);
 		fontConvertString(buf, "Y:DEX");
-		fontDrawString8(244, 212, buf);
+		fontDrawString8(251, 212, buf);
 	}
 	else
 	{
-		renderDrawRect(88, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-		renderDrawRect(230, 204, 2, 24, RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-
+		drawRetroButton(12, 208, 74, 16, btnFill, btnBord);
 		fontConvertString(buf, "B:CANCEL");
-		fontDrawString8(12, 212, buf);
+		fontDrawString8(17, 212, buf);
 
-		// Batch Action in authentic Game Boy dialog style: crisp panel with dark border and arrow
-		renderDrawRect(92, 203, 134, 26, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		renderDrawRect(92, 203, 134, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(92, 228, 134, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(92, 203, 1, 26, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(225, 203, 1, 26, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-
+		// Batch Action in authentic Game Boy dialog style (strictly inside y=208..223)
+		drawRetroButton(90, 208, 132, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
 		char batchStr[32];
 		snprintf(batchStr, sizeof(batchStr), "MOVER (%d)", (int)getBatchSelectedCount());
 		fontConvertString(buf, batchStr);
-		fontDrawChar8(100, 212, 0xED); // Classic Pokemon triangle arrow ►
-		fontDrawString8(112, 212, buf);
+		fontDrawChar8(98, 212, 0xED); // Classic Pokemon triangle arrow ►
+		fontDrawString8(110, 212, buf);
 
+		drawRetroButton(226, 208, 80, 16, RENDER_RGBA(0xEC, 0xDC, 0xDC, 0xFF), RENDER_RGBA(0x98, 0x78, 0x78, 0xFF));
 		fontConvertString(buf, "Y:LIMPIAR");
-		fontDrawString8(238, 212, buf);
+		fontDrawString8(230, 212, buf);
 	}
 
 	if (cursor.sPkm)
@@ -2136,22 +2194,22 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 	{
 		if (row < 4)
 		{
-			*rx = 12; *ry = 46 + row * 35; *rw = 296; *rh = 31;
+			*rx = 14; *ry = 46 + row * 35; *rw = 292; *rh = 31;
 		}
 		else
 		{
-			*rx = 14; *ry = 196; *rw = 292; *rh = 28;
+			*rx = 16; *ry = 198; *rw = 288; *rh = 24;
 		}
 		return;
 	}
 
 	if (row == 0) // Top Row: Shiny, Nivel, Max DV, Max EV
 	{
-		*ry = 28; *rh = 18;
-		if (col == 0) { *rx = 12; *rw = 84; }
-		else if (col == 1) { *rx = 98; *rw = 96; }
-		else if (col == 2) { *rx = 198; *rw = 52; }
-		else { *rx = 254; *rw = 52; }
+		*ry = 31; *rh = 16;
+		if (col == 0) { *rx = 14; *rw = 78; }
+		else if (col == 1) { *rx = 96; *rw = 90; }
+		else if (col == 2) { *rx = 190; *rw = 54; }
+		else { *rx = 248; *rw = 56; }
 	}
 	else if (row >= 1 && row <= 4) // Stats: ATAQ, DEFE, VELO, ESPE
 	{
@@ -2166,10 +2224,10 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 	}
 	else if (row == 6) // Item / Egg / Trade Evolution
 	{
-		*ry = 162; *rh = 24;
-		if (pkm->isEgg)
+		*ry = 164; *rh = 22;
+		if (pkm->isEgg || saveCanTradeEvolve((SAV_Pokemon*)pkm, (vgame < POKEMON_GOLD && !cursor.box->inBank)))
 		{
-			*rx = 14; *rw = 292;
+			*rx = 16; *rw = 288;
 		}
 		else if (canHold)
 		{
@@ -2178,12 +2236,12 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 		}
 		else
 		{
-			*rx = 12; *rw = 294;
+			*rx = 16; *rw = 288;
 		}
 	}
 	else // Row 7: Save & Exit
 	{
-		*rx = 14; *ry = 194; *rw = 292; *rh = 28;
+		*rx = 16; *ry = 198; *rw = 288; *rh = 24;
 	}
 }
 
@@ -2219,17 +2277,17 @@ static void pkmEditorUpdate(void)
 	bool canHold = (cursor.box->inBank || vgame >= POKEMON_GOLD);
 	uint8_t maxMove = (cursor.box->inBank || vgame >= POKEMON_GOLD) ? 251 : 165;
 
-	// Touch Controls (Tabs Header: y=6..26)
+	// Touch Controls (Tabs Header: y=12..28)
 	if (ks.down & KEY_TOUCH)
 	{
 		hidTouchRead(&ks.touch);
 		uint16_t px = ks.touch.px;
 		uint16_t py = ks.touch.py;
 
-		if (py >= 6 && py <= 26)
+		if (py >= 10 && py <= 28)
 		{
-			if (px >= 10 && px <= 155) { editorPage = 0; return; }
-			if (px >= 165 && px <= 310) { editorPage = 1; return; }
+			if (px >= 12 && px <= 157) { editorPage = 0; return; }
+			if (px >= 160 && px <= 307) { editorPage = 1; return; }
 		}
 	}
 
@@ -2286,7 +2344,7 @@ static void pkmEditorUpdate(void)
 				if (py >= my && py <= my + 31)
 				{
 					editorMoveSlot = s;
-					if (px >= 28 && px <= 54) // Left button (<)
+					if (px >= 36 && px <= 58) // Left button (-)
 					{
 						uint8_t m = pkm->moves[s];
 						if (m > 1) m--;
@@ -2295,7 +2353,7 @@ static void pkmEditorUpdate(void)
 						pkm->PPs[s] = PersonalMove(m)->PP;
 						return;
 					}
-					if (px >= 184 && px <= 210) // Right button (>)
+					if (px >= 166 && px <= 188) // Right button (+)
 					{
 						uint8_t m = pkm->moves[s];
 						if (m < maxMove) m++;
@@ -2304,7 +2362,7 @@ static void pkmEditorUpdate(void)
 						pkm->PPs[s] = PersonalMove(m)->PP;
 						return;
 					}
-					if (px >= 262 && px <= 306) // BOR button
+					if (px >= 250 && px <= 300) // BOR button
 					{
 						pkm->moves[s] = 0;
 						pkm->PPs[s] = 0;
@@ -2314,8 +2372,8 @@ static void pkmEditorUpdate(void)
 				}
 			}
 
-			// Exit button (y=196..228, px=14..306)
-			if (py >= 196 && py <= 228 && px >= 14 && px <= 306)
+			// Exit button (y=196..226, px=14..306)
+			if (py >= 196 && py <= 226 && px >= 14 && px <= 306)
 			{
 				saveRecalculateStats(pkm);
 				currentMode = VIEW_MODE_BOXES;
@@ -2556,35 +2614,35 @@ static void pkmEditorUpdate(void)
 		uint16_t px = ks.touch.px;
 		uint16_t py = ks.touch.py;
 
-		// Top Row: y=28..48
-		if (py >= 28 && py <= 48)
+		// Top Row: y=30..48
+		if (py >= 30 && py <= 48)
 		{
-			if (px >= 12 && px <= 96)
+			if (px >= 12 && px <= 92)
 			{
 				editorRow = 0; editorCol = 0;
 				saveSetPkmShiny(pkm, !saveIsPkmShiny(pkm));
 				return;
 			}
-			if (px >= 120 && px <= 150)
+			if (px >= 118 && px <= 140)
 			{
 				editorRow = 0; editorCol = 1;
 				if (pkm->level > 1) saveSetPkmLevel(pkm, pkm->level - 1);
 				return;
 			}
-			if (px >= 168 && px <= 198)
+			if (px >= 166 && px <= 188)
 			{
 				editorRow = 0; editorCol = 1;
 				if (pkm->level < 100) saveSetPkmLevel(pkm, pkm->level + 1);
 				return;
 			}
-			if (px >= 200 && px <= 250)
+			if (px >= 190 && px <= 245)
 			{
 				editorRow = 0; editorCol = 2;
 				pkm->IVs[STAT_ATK] = 15; pkm->IVs[STAT_DEF] = 15; pkm->IVs[STAT_SPE] = 15; pkm->IVs[STAT_SPC] = 15;
 				saveRecalculateStats(pkm);
 				return;
 			}
-			if (px >= 254 && px <= 308)
+			if (px >= 248 && px <= 305)
 			{
 				editorRow = 0; editorCol = 3;
 				for (int i = 0; i < 5; i++) pkm->EVs[i] = 65535;
@@ -2714,7 +2772,7 @@ static void pkmEditorDrawBottom(void)
 	SAV_Pokemon* pkm = cursor.vPkm;
 	renderDrawRect(0, 0, 320, 240, getGameThemeBgColor());
 
-	// Outer frame
+	// Outer frame: borders at x=4..11, 308..315, y=4..11, 228..235 (usable interior x=12..307, y=12..227)
 	renderDrawRect(4, 4, 312, 232, RENDER_RGBA(0xF4, 0xF5, 0xF8, 0xFF));
 	gfxDrawPanel(4, 4, 37, 27);
 
@@ -2722,125 +2780,125 @@ static void pkmEditorDrawBottom(void)
 	bool inGen1 = (vgame < POKEMON_GOLD && !cursor.box->inBank);
 	bool canHold = (cursor.box->inBank || vgame >= POKEMON_GOLD);
 
-	// Tabs Header (y=6..26)
-	// Tab 0: [1. STATS / OBJ]
+	// Tabs Header strictly inside inner area (x=12..307, y=12..28)
+	renderDrawRect(12, 27, 296, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	// Tab 0: [1. STATS / OBJ] (x=12..157, w=146)
 	if (editorPage == 0)
 	{
-		renderDrawRect(10, 6, 145, 20, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		renderDrawRect(10, 6, 145, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(10, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(154, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		fontDrawChar8(20, 12, 0xED); // ►
+		renderDrawRect(12, 12, 146, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(12, 12, 146, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(12, 12, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(157, 12, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(20, 16, 0xED); // ►
 		fontConvertString(buf, "1. STATS / OBJ");
-		fontDrawString8(32, 12, buf);
+		fontDrawString8(32, 16, buf);
 	}
 	else
 	{
-		renderDrawRect(10, 8, 145, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-		renderDrawRect(10, 8, 145, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(10, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(154, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(12, 13, 146, 14, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		renderDrawRect(12, 13, 146, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(12, 13, 1, 14, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(157, 13, 1, 14, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
 		fontConvertString(buf, "1. STATS / OBJ");
-		fontDrawString8(28, 13, buf);
+		fontDrawString8(28, 16, buf);
 	}
 
-	// Tab 1: [2. ATAQUES]
+	// Tab 1: [2. ATAQUES] (x=161..307, w=146)
 	if (editorPage == 1)
 	{
-		renderDrawRect(165, 6, 145, 20, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		renderDrawRect(165, 6, 145, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(165, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(309, 6, 1, 20, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		fontDrawChar8(178, 12, 0xED); // ►
+		renderDrawRect(161, 12, 146, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+		renderDrawRect(161, 12, 146, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(161, 12, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		renderDrawRect(306, 12, 1, 16, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(174, 16, 0xED); // ►
 		fontConvertString(buf, "2. ATAQUES");
-		fontDrawString8(190, 12, buf);
+		fontDrawString8(186, 16, buf);
 	}
 	else
 	{
-		renderDrawRect(165, 8, 145, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-		renderDrawRect(165, 8, 145, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(165, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
-		renderDrawRect(309, 8, 1, 18, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(161, 13, 146, 14, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		renderDrawRect(161, 13, 146, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(161, 13, 1, 14, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		renderDrawRect(306, 13, 1, 14, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
 		fontConvertString(buf, "2. ATAQUES");
-		fontDrawString8(186, 13, buf);
+		fontDrawString8(182, 16, buf);
 	}
+
+	u32 btnFill = RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF);
+	u32 btnBord = RENDER_RGBA(0x78, 0x82, 0x96, 0xFF);
 
 	if (editorPage == 1) // Moves Editor UI
 	{
 		fontConvertString(buf, "MOVIMIENTO");
-		fontDrawString8(44, 32, buf);
+		fontDrawString8(60, 33, buf);
 		fontConvertString(buf, "PP");
-		fontDrawString8(234, 32, buf);
+		fontDrawString8(210, 33, buf);
 
 		for (uint8_t s = 0; s < 4; s++)
 		{
 			int16_t my = 46 + s * 35;
 			bool isCur = (editorMoveSlot == s);
 
-			renderDrawRect(12, my, 296, 31, isCur ? RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RENDER_RGBA(0xF4, 0xF6, 0xFA, 0xFF));
-			// Retro Game Boy panel outline
-			renderDrawRect(12, my, 296, 1, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-			renderDrawRect(12, my + 30, 296, 1, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-			renderDrawRect(12, my, 1, 31, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
-			renderDrawRect(307, my, 1, 31, isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xC0, 0xC4, 0xD0, 0xFF));
+			drawRetroButton(14, my, 292, 31,
+				isCur ? RENDER_RGBA(0xFF, 0xFF, 0xFF, 0xFF) : RENDER_RGBA(0xF4, 0xF6, 0xFA, 0xFF),
+				isCur ? RENDER_RGBA(0x28, 0x30, 0x40, 0xFF) : RENDER_RGBA(0xB8, 0xBE, 0xCC, 0xFF));
 
-			// Cursor arrow if currently selected
+			// Cursor arrow if currently selected (x=16..23)
 			if (isCur)
 			{
-				fontDrawChar8(14, my + 11, 0xED); // ►
+				fontDrawChar8(16, my + 11, 0xED); // ►
 			}
 
-			// Slot number
-			fontDrawFromRightUInt32(26, my + 11, s + 1);
+			// Slot number (single digit at x=26..33)
+			fontDrawChar8(26, my + 11, 0xF6 + s + 1);
 
-			// Dec button (<)
-			renderDrawRect(30, my + 5, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-			fontConvertString(buf, "<");
-			fontDrawString8(36, my + 11, buf);
+			// Dec button (-) at x=38..55 (w=18)
+			drawRetroButton(38, my + 5, 18, 21, btnFill, btnBord);
+			fontConvertString(buf, "-");
+			fontDrawString8(43, my + 11, buf);
 
-			// Move Name
+			// Move Name at x=60..163 (max 13 chars = 104px)
 			uint8_t m = pkm->moves[s];
 			if (m == 0)
 			{
 				fontConvertString(buf, "-------");
-				fontDrawString8(56, my + 11, buf);
+				fontDrawString8(60, my + 11, buf);
 			}
 			else
 			{
-				fontDrawString8(56, my + 11, dataMove(m));
+				fontDrawString8(60, my + 11, dataMove(m));
 			}
 
-			// Inc button (>)
-			renderDrawRect(184, my + 5, 20, 21, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-			fontConvertString(buf, ">");
-			fontDrawString8(190, my + 11, buf);
+			// Inc button (+) at x=168..185 (w=18)
+			drawRetroButton(168, my + 5, 18, 21, btnFill, btnBord);
+			fontConvertString(buf, "+");
+			fontDrawString8(173, my + 11, buf);
 
-			// PP
+			// PP cleanly separated: current PP at 198..213, '/' at 216..223, max PP at 226..241
 			if (m == 0)
 			{
 				fontConvertString(buf, "0/0");
-				fontDrawString8(224, my + 11, buf);
+				fontDrawString8(208, my + 11, buf);
 			}
 			else
 			{
-				fontDrawFromRightUInt32(236, my + 11, pkm->PPs[s]);
-				fontConvertString(buf, "/");
-				fontDrawString8(238, my + 11, buf);
-				fontDrawFromRightUInt32(258, my + 11, PersonalMove(m)->PP);
+				fontDrawFromRightUInt32(206, my + 11, pkm->PPs[s]);
+				fontDrawChar8(216, my + 11, CHAR8_SLASH);
+				fontDrawFromRightUInt32(234, my + 11, PersonalMove(m)->PP);
 			}
 
-			// Delete button (BOR)
-			renderDrawRect(264, my + 5, 38, 21, RENDER_RGBA(0xE8, 0xDC, 0xDC, 0xFF));
+			// Delete button (BOR) at x=252..297 (w=46)
+			drawRetroButton(252, my + 5, 46, 21, RENDER_RGBA(0xEC, 0xDC, 0xDC, 0xFF), RENDER_RGBA(0x98, 0x78, 0x78, 0xFF));
 			fontConvertString(buf, "BOR");
-			fontDrawString8(272, my + 11, buf);
+			fontDrawString8(263, my + 11, buf);
 		}
 
 		// Help line
 		fontConvertString(buf, "L/R: TAB   DPAD: +/-   X: BORRAR");
-		fontDrawString8(46, 184, buf);
+		fontDrawString8(32, 186, buf);
 
-		// Save & Exit button
-		renderDrawRect(14, 196, 292, 28, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		// Save & Exit button strictly inside bottom border (y=198..221 < 228)
+		renderDrawRect(16, 198, 288, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
 		fontSetWhite(true);
 		fontConvertString(buf, "START / B: GUARDAR Y SALIR");
 		fontDrawString8(56, 206, buf);
@@ -2851,42 +2909,42 @@ static void pkmEditorDrawBottom(void)
 	// Page 0: Stats / Obj / Evolución
 	bool isShiny = saveIsPkmShiny(pkm);
 
-	// Top Row: Shiny, Nivel, Max DV, Max EV (y=28..46)
-	renderDrawRect(12, 28, 84, 18, isShiny ? RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF) : RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-	gfxDrawShinyStarSmall(15, 33);
+	// Top Row: Shiny, Nivel, Max DV, Max EV (y=31..46, h=16)
+	drawRetroButton(14, 31, 78, 16, isShiny ? RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF) : btnFill, btnBord);
+	gfxDrawShinyStarSmall(16, 35);
 	fontConvertString(buf, isShiny ? "SHINY:SI" : "SHINY:NO");
-	fontDrawString8(26, 33, buf);
+	fontDrawString8(26, 35, buf);
 
-	// Nivel
-	renderDrawRect(98, 28, 96, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	// Nivel (x=96..185, w=90)
+	drawRetroButton(96, 31, 90, 16, RENDER_RGBA(0xEC, 0xEF, 0xF6, 0xFF), btnBord);
 	fontConvertString(buf, "NV:");
-	fontDrawString8(102, 33, buf);
-	renderDrawRect(126, 29, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
+	fontDrawString8(99, 35, buf);
+	drawRetroButton(122, 32, 16, 14, btnFill, btnBord);
 	fontConvertString(buf, "-");
-	fontDrawString8(131, 33, buf);
-	fontDrawFromRightUInt32(164, 33, pkm->level);
-	renderDrawRect(172, 29, 18, 16, RENDER_RGBA(0xC8, 0xD0, 0xDE, 0xFF));
+	fontDrawString8(126, 35, buf);
+	fontDrawFromRightUInt32(156, 35, pkm->level);
+	drawRetroButton(168, 32, 16, 14, btnFill, btnBord);
 	fontConvertString(buf, "+");
-	fontDrawString8(177, 33, buf);
+	fontDrawString8(172, 35, buf);
 
-	// Max DV
-	renderDrawRect(198, 28, 52, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	// Max DV (x=190..243, w=54)
+	drawRetroButton(190, 31, 54, 16, btnFill, btnBord);
 	fontConvertString(buf, "MAX DV");
-	fontDrawString8(200, 33, buf);
+	fontDrawString8(193, 35, buf);
 
-	// Max EV
-	renderDrawRect(254, 28, 52, 18, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	// Max EV (x=248..303, w=56)
+	drawRetroButton(248, 31, 56, 16, btnFill, btnBord);
 	fontConvertString(buf, "MAX EV");
-	fontDrawString8(256, 33, buf);
+	fontDrawString8(252, 35, buf);
 
 	// Table Header
 	fontConvertString(buf, "ESTAD");
-	fontDrawString8(14, 49, buf);
+	fontDrawString8(14, 50, buf);
 	fontConvertString(buf, "DV (0-15)");
-	fontDrawString8(60, 49, buf);
+	fontDrawString8(60, 50, buf);
 	fontConvertString(buf, "EV (0-65535)");
-	fontDrawString8(168, 49, buf);
-	renderDrawRect(12, 57, 294, 1, RENDER_RGBA(0xB0, 0xB8, 0xC8, 0xFF));
+	fontDrawString8(168, 50, buf);
+	renderDrawRect(14, 58, 292, 1, RENDER_RGBA(0xB0, 0xB8, 0xC8, 0xFF));
 
 	// Stats Rows (y=60 + r * 20)
 	static const char* statNames[4] = { "ATAQ", "DEFE", "VELO", "ESPE" };
@@ -2897,112 +2955,101 @@ static void pkmEditorDrawBottom(void)
 		int16_t ry = 60 + r * 20;
 		uint8_t st = rowStatIdx[r];
 
-		renderDrawRect(12, ry, 294, 18, (r % 2 == 0) ? RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
+		renderDrawRect(14, ry, 292, 18, (r % 2 == 0) ? RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF) : RENDER_RGBA(0xF8, 0xFA, 0xFC, 0xFF));
 		fontConvertString(buf, statNames[r]);
-		fontDrawString8(14, ry + 5, buf);
+		fontDrawString8(16, ry + 5, buf);
 
 		// DV [-] 15 [+]
-		renderDrawRect(54, ry + 1, 18, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		drawRetroButton(54, ry + 1, 18, 16, btnFill, btnBord);
 		fontConvertString(buf, "-");
 		fontDrawString8(59, ry + 5, buf);
 		drawTwoDigit(78, ry + 5, pkm->IVs[st]);
-		renderDrawRect(100, ry + 1, 18, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		drawRetroButton(100, ry + 1, 18, 16, btnFill, btnBord);
 		fontConvertString(buf, "+");
 		fontDrawString8(105, ry + 5, buf);
 
 		// EV value [-5k] [+5k]
 		fontDrawFromRightUInt32(168, ry + 5, pkm->EVs[st]);
-		renderDrawRect(184, ry + 1, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		drawRetroButton(184, ry + 1, 54, 16, btnFill, btnBord);
 		fontConvertString(buf, "-5k");
 		fontDrawString8(198, ry + 5, buf);
-		renderDrawRect(244, ry + 1, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+		drawRetroButton(244, ry + 1, 54, 16, btnFill, btnBord);
 		fontConvertString(buf, "+5k");
 		fontDrawString8(258, ry + 5, buf);
 	}
 
 	// PS Row (ry=140)
-	renderDrawRect(12, 140, 294, 18, RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF));
+	renderDrawRect(14, 140, 292, 18, RENDER_RGBA(0xEE, 0xF1, 0xF6, 0xFF));
 	fontConvertString(buf, "PS (AUTO:");
-	fontDrawString8(14, 145, buf);
-	drawTwoDigit(86, 145, pkm->IVs[STAT_HP]);
+	fontDrawString8(16, 145, buf);
+	drawTwoDigit(88, 145, pkm->IVs[STAT_HP]);
 	fontConvertString(buf, ")");
-	fontDrawString8(102, 145, buf);
+	fontDrawString8(104, 145, buf);
 
 	fontDrawFromRightUInt32(168, 145, pkm->EVs[STAT_HP]);
-	renderDrawRect(184, 141, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	drawRetroButton(184, 141, 54, 16, btnFill, btnBord);
 	fontConvertString(buf, "-5k");
 	fontDrawString8(198, 145, buf);
-	renderDrawRect(244, 141, 54, 16, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+	drawRetroButton(244, 141, 54, 16, btnFill, btnBord);
 	fontConvertString(buf, "+5k");
 	fontDrawString8(258, 145, buf);
 
-	// Row 6: Item / Egg / Trade Evolution (y=162)
+	// Row 6: Item / Egg / Trade Evolution (y=164, h=22)
 	if (saveCanTradeEvolve(pkm, inGen1))
 	{
-		// Authentic Pokemon Game Boy dialog action box
-		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		renderDrawRect(14, 162, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(14, 185, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(14, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(305, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-
-		fontDrawChar8(34, 170, 0xED); // Classic Pokemon triangle arrow ►
+		drawRetroButton(16, 164, 288, 22, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(34, 171, 0xED); // Classic Pokemon triangle arrow ►
 		fontConvertString(buf, "EVOLUCIONAR (INTERCAMBIO)");
-		fontDrawString8(46, 170, buf);
+		fontDrawString8(46, 171, buf);
 	}
 	else if (pkm->isEgg)
 	{
-		renderDrawRect(14, 162, 292, 24, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-		renderDrawRect(14, 162, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(14, 185, 292, 1, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(14, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		renderDrawRect(305, 162, 1, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-
-		fontDrawChar8(58, 170, 0xED);
+		drawRetroButton(16, 164, 288, 22, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+		fontDrawChar8(58, 171, 0xED);
 		fontConvertString(buf, "ECLOSIONAR HUEVO AHORA");
-		fontDrawString8(70, 170, buf);
+		fontDrawString8(70, 171, buf);
 	}
 	else
 	{
-		renderDrawRect(12, 162, 294, 24, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF));
+		drawRetroButton(16, 164, 288, 22, RENDER_RGBA(0xF0, 0xF2, 0xF6, 0xFF), RENDER_RGBA(0xB8, 0xBE, 0xCC, 0xFF));
 		if (!canHold)
 		{
 			fontConvertString(buf, "OBJETO: NO DISPONIBLE EN 1A GEN");
-			fontDrawString8(16, 170, buf);
+			fontDrawString8(22, 171, buf);
 		}
 		else
 		{
 			fontConvertString(buf, "OBJ:");
-			fontDrawString8(14, 170, buf);
-			renderDrawRect(46, 164, 20, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-			fontConvertString(buf, "<");
-			fontDrawString8(52, 170, buf);
+			fontDrawString8(18, 171, buf);
+			drawRetroButton(50, 166, 18, 18, btnFill, btnBord);
+			fontConvertString(buf, "-");
+			fontDrawString8(55, 171, buf);
 
 			if (pkm->heldItem == 0)
 			{
 				fontConvertString(buf, "NINGUNO");
-				fontDrawString8(72, 170, buf);
+				fontDrawString8(74, 171, buf);
 			}
 			else
 			{
-				fontDrawString8(72, 170, items_table[pkm->heldItem].name);
+				fontDrawString8(74, 171, items_table[pkm->heldItem].name);
 			}
 
-			renderDrawRect(176, 164, 20, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
-			fontConvertString(buf, ">");
-			fontDrawString8(182, 170, buf);
+			drawRetroButton(176, 166, 18, 18, btnFill, btnBord);
+			fontConvertString(buf, "+");
+			fontDrawString8(181, 171, buf);
 
-			renderDrawRect(204, 164, 98, 20, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF));
+			drawRetroButton(202, 166, 98, 18, btnFill, btnBord);
 			fontConvertString(buf, "QUITAR");
-			fontDrawString8(230, 170, buf);
+			fontDrawString8(227, 171, buf);
 		}
 	}
 
-	// Row 7: Save & Exit
-	renderDrawRect(14, 194, 292, 28, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
+	// Row 7: Save & Exit strictly inside bottom border (y=198..221 < 228)
+	renderDrawRect(16, 198, 288, 24, RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
 	fontSetWhite(true);
 	fontConvertString(buf, "START / B: GUARDAR Y SALIR");
-	fontDrawString8(56, 204, buf);
+	fontDrawString8(56, 206, buf);
 	fontSetWhite(false);
 
 	// Focus highlight outline in authentic Game Boy dark charcoal

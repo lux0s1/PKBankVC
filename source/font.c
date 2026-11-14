@@ -70,9 +70,13 @@ static char8_t fontConvertChar(char c)
 		case '/': return 0xF3;
 		case ',': return 0xF4;
 		case ':': return 0x9C;
-		case '(': return 0x9A;
-		case ')': return 0x9B;
-		case '+': return 0x10;
+		case '(':
+		case '[': return 0x9A;
+		case ')':
+		case ']': return 0x9B;
+		case '+':
+		case '>': return 0x10;
+		case '<': return 0xE3;
 		default: return 0x50;
 	}
 }
