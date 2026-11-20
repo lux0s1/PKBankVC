@@ -283,6 +283,7 @@ SAV_Pokemon* saveGetPkm(uint8_t box, uint8_t slot, bool inBank);
  * @param dstBanked Whether the destination is in bank.
  * @return Whether the Pokémon have been swapped.
  */
+bool saveCanPlacePokemon(const SAV_Pokemon* pkm, bool inBank);
 bool saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBanked);
 
 /**
@@ -305,7 +306,9 @@ bool saveIsPkmEmpty(const SAV_Pokemon* pkm);
 bool saveIsPkmShiny(const SAV_Pokemon* pkm);
 void saveSetPkmShiny(SAV_Pokemon* pkm, bool shiny);
 void saveRecalculateStats(SAV_Pokemon* pkm);
+uint32_t saveCalcExpForLevel(uint8_t species, uint8_t level);
 void saveSetPkmLevel(SAV_Pokemon* pkm, uint8_t newLevel);
+bool saveInjectPartyPkm(const SAV_Pokemon* pkm);
 
 /**
  * @todo jp
@@ -317,6 +320,7 @@ uint8_t saveGetBoxCount(bool inBank);
  * @return The trainer's name as string8_t.
  */
 const char8_t* saveGetTrainerName(void);
+uint16_t saveGetTrainerID(void);
 
 /**
  * @brief Gets the name of the game's rival.
@@ -340,6 +344,7 @@ uint8_t* saveGetPokedexSeen(void);
  * @brief Gets the count of owned species in the active game save's Pokédex.
  */
 uint16_t saveGetGamePokedexOwnedCount(void);
+bool saveHasGame150Kanto(void);
 
 /**
  * @brief Checks if the active game save's Pokédex is completed (150+ Gen I, 250+ Gen II).

@@ -49,6 +49,7 @@ uint16_t bankStoreCountKanto(void);
 uint16_t bankStoreCountNational(void);
 bool bankStoreHas150Kanto(void);
 bool bankStoreIsMewClaimed(void);
+bool bankStoreCanClaimMewGF(void);
 int16_t bankStoreClaimMewGF(void);
 
 const char8_t* itemGetName(uint8_t itemId, bool isGen1);

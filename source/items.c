@@ -133,7 +133,7 @@ void bankStoreLoad(void)
 {
 	memset(&bankStore, 0, sizeof(BankStoreData));
 	bankStore.magic = POKEDEX_BIN_MAGIC;
-	bankStore.version = 4;
+	bankStore.version = 5;
 
 	FILE* fp = fopen(POKEDEX_BIN_PATH, "rb");
 	if (fp)
@@ -145,8 +145,9 @@ void bankStoreLoad(void)
 		if (r >= sizeof(uint32_t) * 2 && tmp.magic == POKEDEX_BIN_MAGIC)
 		{
 			memcpy(bankStore.itemCounts, tmp.itemCounts, sizeof(bankStore.itemCounts));
-			if (tmp.version >= 3)
+			if (tmp.version >= 5)
 			{
+				// v5+ tracks per-version Mew claim in bits 1..7 (1 << vgame)
 				bankStore.mysteryGiftClaimed = tmp.mysteryGiftClaimed;
 			}
 		}
@@ -182,12 +183,18 @@ bool bankStoreHas150Kanto(void)
 
 bool bankStoreIsMewClaimed(void)
 {
-	return (bankStore.mysteryGiftClaimed & 0x01) != 0;
+	if (vgame < POKEMON_RED || vgame > POKEMON_CRYSTAL) return true;
+	return (bankStore.mysteryGiftClaimed & (uint8_t)(1u << vgame)) != 0;
+}
+
+bool bankStoreCanClaimMewGF(void)
+{
+	return saveHasGame150Kanto() && !bankStoreIsMewClaimed();
 }
 
 int16_t bankStoreClaimMewGF(void)
 {
-	if (!bankStoreHas150Kanto() || bankStoreIsMewClaimed()) return -1;
+	if (!bankStoreCanClaimMewGF()) return -1;
 
 	// Find first empty slot in bank
 	int16_t targetBox = -1;
@@ -216,7 +223,7 @@ int16_t bankStoreClaimMewGF(void)
 	mew.speciesIndex = mew.species;
 	mew.level = 5;
 	mew.currentLevel = 5;
-	mew.experience = 135; // Nv 5 Medium-Slow
+	mew.experience = saveCalcExpForLevel(SPECIES_MEW, 5); // 135 (Nv 5 Medium-Slow)
 
 	// Moves: Pound (1), 35 PP
 	mew.moves[0] = 1;
@@ -234,16 +241,16 @@ int16_t bankStoreClaimMewGF(void)
 	mew.friendship = 70;
 	mew.originalTID = 22796; // 0x590C (GF UK 2016)
 
-	// OT: "GF" -> [0x86, 0x85, 0x50]
+	// OT: "GF" + 0x50 padding
+	memset(mew.nameOT, 0x50, sizeof(mew.nameOT));
 	mew.nameOT[0] = 0x86;
 	mew.nameOT[1] = 0x85;
-	mew.nameOT[2] = 0x50;
 
-	// Name: "MEW" -> [0x8C, 0x84, 0x96, 0x50]
+	// Name: "MEW" + 0x50 padding
+	memset(mew.nameNK, 0x50, sizeof(mew.nameNK));
 	mew.nameNK[0] = 0x8C;
 	mew.nameNK[1] = 0x84;
 	mew.nameNK[2] = 0x96;
-	mew.nameNK[3] = 0x50;
 
 	saveRecalculateStats(&mew);
 	mew.currentHP = mew.maxHP;
@@ -253,9 +260,9 @@ int16_t bankStoreClaimMewGF(void)
 	sbank.boxes[targetBox].slots[targetSlot] = mew;
 	sbank.boxes[targetBox].count++;
 
-	// Mark owned in bank pokedex
-	bankStoreRecordSpecies(SPECIES_MEW, POKEMON_YELLOW);
-	bankStore.mysteryGiftClaimed |= 0x01;
+	// Mark owned in bank pokedex and record per-version claim
+	bankStoreRecordSpecies(SPECIES_MEW, vgame);
+	bankStore.mysteryGiftClaimed |= (uint8_t)(1u << vgame);
 
 	saveCommitBank();
 
@@ -419,10 +426,10 @@ void gameItemGetSlot(ItemPocket pocket, uint8_t slot, uint8_t* outId, uint8_t* o
 					{
 						// Map TM index (0..49) or HM index (50..56) to Gen 2 item ID
 						uint8_t g2Id;
-						if (i < 4) g2Id = 190 + i;
-						else if (i < 28) g2Id = 191 + i;
-						else if (i < 50) g2Id = 192 + i;
-						else g2Id = 242 + (i - 50);
+						if (i < 4) g2Id = 191 + i;
+						else if (i < 28) g2Id = 192 + i;
+						else if (i < 50) g2Id = 193 + i;
+						else g2Id = 243 + (i - 50);
 						*outId = g2Id;
 						*outQty = save[off + i];
 						return;
@@ -483,9 +490,9 @@ bool gameItemAdd(ItemPocket pocket, uint8_t gen2Id, uint8_t qty)
 		{
 			uint16_t off = getGen2PocketOffset(ITEM_POCKET_TMHM);
 			uint8_t tmIdx = 0xFF;
-			if (gen2Id >= 190 && gen2Id <= 193) tmIdx = gen2Id - 190;
-			else if (gen2Id >= 195 && gen2Id <= 218) tmIdx = gen2Id - 191;
-			else if (gen2Id >= 220 && gen2Id <= 241) tmIdx = gen2Id - 192;
+			if (gen2Id >= 191 && gen2Id <= 194) tmIdx = gen2Id - 191;
+			else if (gen2Id >= 196 && gen2Id <= 219) tmIdx = gen2Id - 192;
+			else if (gen2Id >= 221 && gen2Id <= 242) tmIdx = gen2Id - 193;
 			if (tmIdx >= 50) return false;
 			if (save[off + tmIdx] + qty > 99) return false;
 			save[off + tmIdx] += qty;

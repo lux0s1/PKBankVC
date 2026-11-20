@@ -8,6 +8,7 @@
 #include "items.h"
 #include "personal.h"
 #include "render.h"
+#include "events.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,7 @@ typedef enum
 	VIEW_MODE_POKEDEX = 2,
 	VIEW_MODE_DIPLOMA = 3,
 	VIEW_MODE_PKM_EDIT = 4,
+	VIEW_MODE_EVENTS = 5,
 } ViewerMode;
 
 typedef struct
@@ -90,6 +92,16 @@ static uint64_t bagStatusTime = 0;
 static int16_t dexCursor = 1; // 1..251
 static int16_t dexScroll = 0;
 static bool dexDiplomaIsGen2 = false;
+
+// Historical Mystery Gifts state
+static EventCategory evCategory = EVENT_CAT_GEN1;
+static int16_t evCursor = 0;
+static int16_t evScroll = 0;
+static uint8_t evOtIdx = 0;
+static bool evForceShiny = false;
+static EventInjectDest evDest = EVENT_DEST_PC_BOX;
+static uint16_t evFilteredIndices[64];
+static uint16_t evFilteredCount = 0;
 
 static bool boxExitRequested = false;
 bool boxViewerWantsExit(void) { return boxExitRequested; }
@@ -163,19 +175,26 @@ static void executeBatchMove(void)
 		return;
 	}
 
-	// Legality validation if target is Gen 1 cartridge
-	if (!cursor.box->inBank && vgame <= POKEMON_YELLOW)
+	// Legality validation before moving any Pokémon
+	for (uint8_t i = 0; i < POKEMON_LIST_MAX_COUNT; i++)
 	{
-		for (uint8_t i = 0; i < POKEMON_LIST_MAX_COUNT; i++)
+		if (!batchSelected[i]) continue;
+		SAV_Pokemon* p = saveGetPkm(batchSourceBox, i, batchSourceInBank);
+		if (!p || saveIsPkmEmpty(p)) continue;
+
+		if (cursor.box->inBank && p->isEgg)
 		{
-			if (!batchSelected[i]) continue;
-			SAV_Pokemon* p = saveGetPkm(batchSourceBox, i, batchSourceInBank);
-			if (!p || saveIsPkmEmpty(p)) continue;
-			if (p->nationalDex > 151 || p->heldItem != 0 || p->isEgg)
-			{
-				showBoxAlert("ACCION BLOQUEADA", "HAY POKEMON INCOMPATIBLES CON GEN 1");
-				return;
-			}
+			showBoxAlert("ACCION BLOQUEADA", "NO SE GUARDAN HUEVOS EN BANCO");
+			return;
+		}
+		if (!saveCanPlacePokemon(p, cursor.box->inBank))
+		{
+			showBoxAlert("ACCION BLOQUEADA",
+				(!cursor.box->inBank && vgame <= POKEMON_YELLOW) ? "HAY POKEMON INCOMPATIBLES CON GEN 1" : "POKEMON NO COMPATIBLE CON DESTINO");
+			return;
+		}
+		if (!cursor.box->inBank && vgame <= POKEMON_YELLOW)
+		{
 			for (uint8_t m = 0; m < 4; m++)
 			{
 				if (p->moves[m] > 165)
@@ -199,16 +218,24 @@ static void executeBatchMove(void)
 		if (destSlot >= cursor.box->vBox->capacity) break;
 
 		SAV_Pokemon* dstPkm = saveGetPkm(cursor.box->box, destSlot, cursor.box->inBank);
-		saveMovePkm(dstPkm, srcPkm, batchSourceInBank, cursor.box->inBank);
+		if (!saveMovePkm(dstPkm, srcPkm, batchSourceInBank, cursor.box->inBank))
+		{
+			showBoxAlert("ACCION BLOQUEADA", "MOVIMIENTO MULTI INTERRUMPIDO");
+			return;
+		}
 
 		if (cursor.box->inBank)
 		{
-			bankStoreRecordSpecies(dstPkm->nationalDex, vgame);
+			if (!dstPkm->isEgg)
+				bankStoreRecordSpecies(dstPkm->nationalDex, vgame);
 		}
 		else
 		{
-			pokedexAddOwned(dstPkm->nationalDex);
-			pokedexAddSeen(dstPkm->nationalDex);
+			if (!dstPkm->isEgg)
+			{
+				pokedexAddOwned(dstPkm->nationalDex);
+				pokedexAddSeen(dstPkm->nationalDex);
+			}
 		}
 		destSlot++;
 	}
@@ -270,6 +297,61 @@ static void drawRetroButton(int16_t x, int16_t y, int16_t w, int16_t h, u32 fill
 	renderDrawRect(x + w - 1, y, 1, h, borderCol);
 }
 
+static void convertSafeAscii(char8_t* out, const char* in, int maxLen)
+{
+	char tmp[64];
+	int n = 0;
+	if (maxLen > (int)sizeof(tmp) - 1) maxLen = (int)sizeof(tmp) - 1;
+	if (in)
+	{
+		while (in[n] != '\0' && n < maxLen)
+		{
+			char c = in[n];
+			if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+				c == ' ' || c == '-' || c == '?' || c == '!' || c == '.' || c == '/' ||
+				c == ',' || c == ':' || c == '(' || c == '[' || c == ')' || c == ']' ||
+				c == '+' || c == '>' || c == '<')
+			{
+				tmp[n] = c;
+			}
+			else if (c == ';') tmp[n] = ':';
+			else if (c == '=') tmp[n] = '-';
+			else if (c == '&') tmp[n] = '+';
+			else tmp[n] = ' ';
+			n++;
+		}
+	}
+	tmp[n] = '\0';
+	fontConvertString(out, tmp);
+}
+
+static void drawRetroButtonCentered(int16_t x, int16_t y, int16_t w, int16_t h, u32 fillCol, u32 borderCol, const char* label, bool withArrow)
+{
+	drawRetroButton(x, y, w, h, fillCol, borderCol);
+	char8_t buf[48];
+	int maxChars = (w - (withArrow ? 14 : 4)) / 8;
+	if (maxChars < 1) maxChars = 1;
+	if (maxChars > 46) maxChars = 46;
+	convertSafeAscii(buf, label, maxChars);
+
+	int len = 0;
+	while (len < maxChars && buf[len] != 0x50) len++;
+	int16_t contentW = (withArrow ? 10 : 0) + len * 8;
+	int16_t tx = x + (w - contentW) / 2;
+	if (tx < x + 2) tx = x + 2;
+	int16_t ty = y + (h - 8) / 2;
+
+	if (withArrow)
+	{
+		fontDrawChar8(tx, ty, 0xED); // ►
+		fontDrawString8(tx + 10, ty, buf);
+	}
+	else
+	{
+		fontDrawString8(tx, ty, buf);
+	}
+}
+
 static void boxViewerDrawTop(void);
 static void boxViewerDrawBottom(void);
 
@@ -292,6 +374,11 @@ static void bagViewerDrawBottom(void);
 static void dexViewerUpdate(void);
 static void dexViewerDrawTop(void);
 static void dexViewerDrawBottom(void);
+
+static void eventsRefreshCategory(bool resetCursor);
+static void eventsViewerUpdate(void);
+static void eventsViewerDrawTop(void);
+static void eventsViewerDrawBottom(void);
 
 void boxViewerInitialize(void)
 {
@@ -317,6 +404,13 @@ void boxViewerInitialize(void)
 	bagStatusMsg[0] = 0x50;
 	dexCursor = 1;
 	dexScroll = 0;
+	evCategory = (vgame >= POKEMON_GOLD) ? EVENT_CAT_GEN2 : EVENT_CAT_GEN1;
+	evCursor = 0;
+	evScroll = 0;
+	evOtIdx = 0;
+	evForceShiny = false;
+	evDest = EVENT_DEST_PC_BOX;
+	eventsRefreshCategory(true);
 
 	boxExitRequested = false;
 
@@ -997,7 +1091,7 @@ static void dexViewerUpdate(void)
 		return;
 	}
 
-	if (bankStoreHas150Kanto() && !bankStoreIsMewClaimed())
+	if (bankStoreCanClaimMewGF())
 	{
 		bool claimPressed = (ks.down & KEY_START);
 		if (ks.down & KEY_TOUCH)
@@ -1328,7 +1422,7 @@ static void dexViewerDrawBottom(void)
 	}
 
 	// Bottom Area Name panel (or Mystery Gift button if available)
-	if (bankStoreHas150Kanto() && !bankStoreIsMewClaimed())
+	if (bankStoreCanClaimMewGF())
 	{
 		renderDrawRect(24, 196, 272, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
 		gfxDrawPanel(24, 196, 32, 2);
@@ -1344,6 +1438,462 @@ static void dexViewerDrawBottom(void)
 		fontConvertString(buf, owned ? areaName : "AREA DESCONOCIDA");
 		fontDrawString8(40, 208, buf);
 	}
+}
+
+static bool isEventShinyEffective(const HistoricalEvent* ev, bool forceShiny)
+{
+	if (!ev) return false;
+	if (ev->dv_mode == EVENT_DV_SHINY_GEN2) return true;
+	if (eventAllowsManualShiny(ev) && forceShiny) return true;
+	if (ev->dv_mode == EVENT_DV_FIXED)
+	{
+		return (ev->fixed_dvs[1] == 10 && ev->fixed_dvs[2] == 10 &&
+		        ev->fixed_dvs[3] == 10 && ((ev->fixed_dvs[0] & 2) == 2));
+	}
+	return false;
+}
+
+static void eventsRefreshCategory(bool resetCursor)
+{
+	evFilteredCount = eventsGetByCategory(evCategory, evFilteredIndices, 64);
+	if (evFilteredCount == 0)
+	{
+		evCursor = 0;
+		evScroll = 0;
+		evOtIdx = 0;
+		evForceShiny = false;
+		return;
+	}
+	if (resetCursor)
+	{
+		evCursor = 0;
+		evScroll = 0;
+		evOtIdx = 0;
+		evForceShiny = false;
+	}
+	else
+	{
+		if (evCursor >= (int16_t)evFilteredCount) evCursor = (int16_t)evFilteredCount - 1;
+		if (evCursor < 0) evCursor = 0;
+		if (evScroll > evCursor) evScroll = evCursor;
+		if (evScroll + 6 <= evCursor) evScroll = evCursor - 5;
+		if (evScroll < 0) evScroll = 0;
+	}
+	const HistoricalEvent* ev = eventsGet(evFilteredIndices[evCursor]);
+	if (!ev || evOtIdx >= ev->ot_count) evOtIdx = 0;
+	if (!eventAllowsManualShiny(ev)) evForceShiny = false;
+}
+
+static void eventsApplyInjection(void)
+{
+	if (evFilteredCount == 0 || evCursor >= (int16_t)evFilteredCount) return;
+	const HistoricalEvent* ev = eventsGet(evFilteredIndices[evCursor]);
+	if (!ev) return;
+
+	char msg1[40], msg2[40];
+	eventInject(ev, evOtIdx, evForceShiny, evDest, msg1, msg2);
+	showBoxAlert(msg1, msg2);
+	boxSelectViewBox();
+	boxSelectViewPkm();
+}
+
+static void eventsViewerUpdate(void)
+{
+	const HistoricalEvent* curEv = (evFilteredCount > 0 && evCursor < (int16_t)evFilteredCount)
+		? eventsGet(evFilteredIndices[evCursor]) : NULL;
+
+	if (ks.down & KEY_B)
+	{
+		boxSelectViewBox();
+		boxSelectViewPkm();
+		currentMode = VIEW_MODE_BOXES;
+		return;
+	}
+	if (ks.down & KEY_L)
+	{
+		evCategory = (EventCategory)((evCategory + 3) % 4);
+		eventsRefreshCategory(true);
+		return;
+	}
+	if (ks.down & KEY_R)
+	{
+		evCategory = (EventCategory)((evCategory + 1) % 4);
+		eventsRefreshCategory(true);
+		return;
+	}
+	if ((ks.down & KEY_UP) && evFilteredCount > 0)
+	{
+		evCursor--;
+		if (evCursor < 0) evCursor = (int16_t)evFilteredCount - 1;
+		if (evCursor < evScroll) evScroll = evCursor;
+		if (evCursor >= evScroll + 6) evScroll = evCursor - 5;
+		if (evScroll < 0) evScroll = 0;
+		evOtIdx = 0;
+		curEv = eventsGet(evFilteredIndices[evCursor]);
+		if (!eventAllowsManualShiny(curEv)) evForceShiny = false;
+		return;
+	}
+	if ((ks.down & KEY_DOWN) && evFilteredCount > 0)
+	{
+		evCursor++;
+		if (evCursor >= (int16_t)evFilteredCount) evCursor = 0;
+		if (evCursor < evScroll) evScroll = evCursor;
+		if (evCursor >= evScroll + 6) evScroll = evCursor - 5;
+		evOtIdx = 0;
+		curEv = eventsGet(evFilteredIndices[evCursor]);
+		if (!eventAllowsManualShiny(curEv)) evForceShiny = false;
+		return;
+	}
+	if (ks.down & KEY_LEFT)
+	{
+		evDest = (EventInjectDest)((evDest + 2) % 3);
+		return;
+	}
+	if (ks.down & KEY_RIGHT)
+	{
+		evDest = (EventInjectDest)((evDest + 1) % 3);
+		return;
+	}
+	if (ks.down & KEY_X)
+	{
+		if (curEv && curEv->ot_count > 1)
+			evOtIdx = (evOtIdx + 1) % curEv->ot_count;
+		return;
+	}
+	if (ks.down & KEY_Y)
+	{
+		if (curEv && eventAllowsManualShiny(curEv))
+			evForceShiny = !evForceShiny;
+		return;
+	}
+	if (ks.down & (KEY_A | KEY_START))
+	{
+		eventsApplyInjection();
+		return;
+	}
+
+	if (ks.down & KEY_TOUCH)
+	{
+		hidTouchRead(&ks.touch);
+		uint16_t px = ks.touch.px;
+		uint16_t py = ks.touch.py;
+
+		// Category Tabs (y=10..32)
+		if (py >= 10 && py <= 32)
+		{
+			EventCategory nextCat = evCategory;
+			if (px <= 84) nextCat = EVENT_CAT_GEN1;
+			else if (px <= 159) nextCat = EVENT_CAT_GEN2;
+			else if (px <= 234) nextCat = EVENT_CAT_PCNY;
+			else nextCat = EVENT_CAT_EGGS;
+
+			if (nextCat != evCategory)
+			{
+				evCategory = nextCat;
+				eventsRefreshCategory(true);
+			}
+			return;
+		}
+
+		// Event List (6 rows at y=46..165)
+		if (py >= 46 && py <= 165 && px >= 12 && px <= 307 && evFilteredCount > 0)
+		{
+			int16_t row = (int16_t)(py - 46) / 20;
+			int16_t idx = evScroll + row;
+			if (idx >= 0 && idx < (int16_t)evFilteredCount)
+			{
+				evCursor = idx;
+				evOtIdx = 0;
+				curEv = eventsGet(evFilteredIndices[evCursor]);
+				if (!eventAllowsManualShiny(curEv)) evForceShiny = false;
+			}
+			return;
+		}
+
+		// Config Row (y=184..203)
+		if (py >= 184 && py <= 203)
+		{
+			if (px <= 127)
+			{
+				evDest = (EventInjectDest)((evDest + 1) % 3);
+			}
+			else if (px <= 223)
+			{
+				if (curEv && curEv->ot_count > 1)
+					evOtIdx = (evOtIdx + 1) % curEv->ot_count;
+			}
+			else
+			{
+				if (curEv && eventAllowsManualShiny(curEv))
+					evForceShiny = !evForceShiny;
+			}
+			return;
+		}
+
+		// Action Row (y=204..226)
+		if (py >= 204 && py <= 226)
+		{
+			if (px <= 207)
+			{
+				eventsApplyInjection();
+			}
+			else
+			{
+				boxSelectViewBox();
+				boxSelectViewPkm();
+				currentMode = VIEW_MODE_BOXES;
+			}
+			return;
+		}
+	}
+}
+
+static void eventsViewerDrawTop(void)
+{
+	renderDrawRect(48, 40, 304, 160, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawFrame(0, 0);
+
+	if (evFilteredCount == 0 || evCursor >= (int16_t)evFilteredCount) return;
+	const HistoricalEvent* ev = eventsGet(evFilteredIndices[evCursor]);
+	if (!ev) return;
+
+	bool willBeShiny = isEventShinyEffective(ev, evForceShiny);
+
+	// Top-Left 56x56 Portrait inside clean standalone frame (x=52..123, y=40..111)
+	renderDrawRect(60, 48, 56, 56, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	if (ev->is_egg)
+	{
+		gfxDrawEggSprite(60, 48);
+	}
+	else
+	{
+		uint8_t sprVer = (ev->gen == 1 && vgame <= POKEMON_YELLOW) ? vgame :
+		                 (vgame >= POKEMON_GOLD ? vgame : POKEMON_CRYSTAL);
+		gfxDrawGamePokemonSprite(60, 48, ev->species_id, sprVer);
+	}
+	gfxDrawPanel(52, 40, 7, 7);
+
+	char line[64];
+	char8_t buf[64];
+
+	// Title + Level (y=44)
+	snprintf(line, sizeof(line), "%.19s :L%d", ev->title, (int)ev->level);
+	convertSafeAscii(buf, line, 25);
+	fontDrawString8(126, 44, buf);
+	if (willBeShiny)
+	{
+		gfxDrawShinyStar(334, 43);
+	}
+
+	// Badges Row (y=57, h=13)
+	u32 darkBord = RENDER_RGBA(0x28, 0x30, 0x40, 0xFF);
+	u32 badgeBg = willBeShiny
+		? RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF)
+		: RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF);
+	drawRetroButtonCentered(126, 57, 66, 13, badgeBg, darkBord, ev->ui_meta.badge, false);
+	drawRetroButtonCentered(196, 57, 50, 13, RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF), darkBord,
+		(ev->gen == 1) ? "GEN 1" : "GEN 2", false);
+	if (ev->is_egg && evDest == EVENT_DEST_BANK)
+	{
+		drawRetroButtonCentered(250, 57, 88, 13, RENDER_RGBA(0xFF, 0xDC, 0xB0, 0xFF), darkBord, "NO BANCO", false);
+	}
+	else if (ev->gen == 2 && vgame <= POKEMON_YELLOW && evDest != EVENT_DEST_BANK)
+	{
+		drawRetroButtonCentered(250, 57, 88, 13, RENDER_RGBA(0xFF, 0xDC, 0xB0, 0xFF), darkBord, "SOLO GEN2", false);
+	}
+
+	// Region & Year (y=73)
+	snprintf(line, sizeof(line), "%s  %s", ev->ui_meta.region_label, ev->ui_meta.year_label);
+	convertSafeAscii(buf, line, 27);
+	fontDrawString8(126, 73, buf);
+
+	// Method (y=85)
+	convertSafeAscii(buf, ev->ui_meta.method_label, 27);
+	fontDrawString8(126, 85, buf);
+
+	// OT & IDNo (y=97) - static deterministic preview, never re-roll random TID at 60 FPS
+	convertSafeAscii(buf, "OT:", 4);
+	fontDrawString8(126, 97, buf);
+	if (ev->ot_count == 0)
+	{
+		fontDrawString8(150, 97, saveGetTrainerName());
+	}
+	else
+	{
+		uint8_t oi = (evOtIdx < ev->ot_count) ? evOtIdx : 0;
+		convertSafeAscii(buf, ev->ot_options[oi], 10);
+		fontDrawString8(150, 97, buf);
+	}
+	convertSafeAscii(buf, "ID:", 4);
+	fontDrawString8(242, 97, buf);
+	if (ev->tid_mode == EVENT_TID_PLAYER)
+	{
+		fontDrawPaddingUInt16(266, 97, saveGetTrainerID());
+	}
+	else if (ev->tid_mode == EVENT_TID_FIXED)
+	{
+		fontDrawPaddingUInt16(266, 97, ev->fixed_tid);
+	}
+	else
+	{
+		convertSafeAscii(buf, "AZAR", 6);
+		fontDrawString8(266, 97, buf);
+	}
+
+	// Bottom Details Box (x=52..347, y=112..199, interior x=60..339, y=120..191)
+	gfxDrawPanel(52, 112, 35, 9);
+	renderDrawRect(186, 121, 1, 54, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+	renderDrawRect(60, 177, 279, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+
+	// Left: Moves
+	convertSafeAscii(buf, "MOVIMIENTOS:", 15);
+	fontDrawString8(62, 121, buf);
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		int16_t my = 132 + i * 11;
+		if (ev->moves[i] != 0)
+		{
+			fontDrawString8(62, my, dataMove(ev->moves[i]));
+		}
+		else
+		{
+			convertSafeAscii(buf, "-", 2);
+			fontDrawString8(62, my, buf);
+		}
+	}
+
+	// Right: DVs & CR/Item
+	convertSafeAscii(buf, "DVS:", 16);
+	fontDrawString8(192, 121, buf);
+	convertSafeAscii(buf, eventGetDvLabel(ev, evForceShiny), 18);
+	fontDrawString8(192, 132, buf);
+
+	convertSafeAscii(buf, (ev->gen == 1) ? "CATCH RATE G1:" : "OBJETO EQUIP.:", 18);
+	fontDrawString8(192, 143, buf);
+	convertSafeAscii(buf, eventGetItemOrCrLabel(ev), 18);
+	fontDrawString8(192, 154, buf);
+
+	if (ev->is_egg)
+	{
+		convertSafeAscii(buf, "CICLOS HUEVO: 5", 18);
+		fontDrawString8(192, 165, buf);
+	}
+
+	// Footer Note (y=181)
+	convertSafeAscii(buf, ev->ui_meta.home_note, 34);
+	fontDrawString8(62, 181, buf);
+}
+
+static void eventsViewerDrawBottom(void)
+{
+	renderDrawRect(0, 0, 320, 240, getGameThemeBgColor());
+
+	u32 btnFill = RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF);
+	u32 btnBord = RENDER_RGBA(0x78, 0x82, 0x96, 0xFF);
+	u32 darkBord = RENDER_RGBA(0x28, 0x30, 0x40, 0xFF);
+	u32 activeFill = RENDER_RGBA(0xFF, 0xEC, 0x99, 0xFF);
+	u32 goldFill = RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF);
+
+	// 1. Category Tabs Panel (y=4..35, inner x=12..307, y=12..27)
+	renderDrawRect(4, 4, 312, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(4, 4, 37, 2);
+
+	const char* tabLabels[4] = { "GEN 1", "GEN 2", "PCNY", "HUEVOS" };
+	for (uint8_t t = 0; t < 4; t++)
+	{
+		bool sel = (evCategory == (EventCategory)t);
+		drawRetroButtonCentered(12 + t * 75, 13, 71, 14,
+			sel ? activeFill : btnFill,
+			sel ? darkBord : btnBord,
+			tabLabels[t], false);
+	}
+
+	// 2. Events List Panel (y=38..173, inner x=12..307, y=46..165, 6 rows x 20px)
+	renderDrawRect(4, 38, 312, 136, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(4, 38, 37, 15);
+
+	char8_t buf[32];
+	const HistoricalEvent* curEv = (evFilteredCount > 0 && evCursor < (int16_t)evFilteredCount)
+		? eventsGet(evFilteredIndices[evCursor]) : NULL;
+
+	for (uint8_t r = 0; r < 6; r++)
+	{
+		int16_t idx = evScroll + r;
+		if (idx >= (int16_t)evFilteredCount) break;
+		const HistoricalEvent* ev = eventsGet(evFilteredIndices[idx]);
+		if (!ev) continue;
+
+		int16_t ry = 46 + r * 20;
+		bool isCur = (idx == evCursor);
+		if (isCur)
+		{
+			renderDrawRect(13, ry, 294, 19, RENDER_RGBA(0xDE, 0xE6, 0xF4, 0xFF));
+			fontDrawChar8(15, ry + 5, 0xED); // ►
+		}
+
+		GFX_Frame anim = (isCur && ((osGetTime() / 250) % 2)) ? GFX_FRAME_1 : GFX_FRAME_0;
+		gfxDrawPokemonIcon(24, ry + 2, ev->is_egg ? (DEX_Species)253 : (DEX_Species)ev->species_id, anim);
+
+		convertSafeAscii(buf, ev->short_name, 18);
+		fontDrawString8(46, ry + 6, buf);
+
+		convertSafeAscii(buf, ev->ui_meta.badge, 9);
+		int bLen = 0;
+		while (bLen < 9 && buf[bLen] != 0x50) bLen++;
+		fontDrawString8(302 - bLen * 8, ry + 6, buf);
+	}
+
+	// Scrollbar hint if list > 6 items
+	if (evFilteredCount > 6)
+	{
+		renderDrawRect(306, 48, 2, 116, RENDER_RGBA(0xD0, 0xD4, 0xE0, 0xFF));
+		int16_t barH = (116 * 6) / (int16_t)evFilteredCount;
+		if (barH < 12) barH = 12;
+		int16_t maxScr = (int16_t)evFilteredCount - 6;
+		int16_t barY = 48 + (evScroll * (116 - barH)) / maxScr;
+		renderDrawRect(306, barY, 2, barH, darkBord);
+	}
+
+	// 3. Controls & Inject Panel (y=176..231, inner x=12..307, y=184..223)
+	renderDrawRect(4, 176, 312, 56, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(4, 176, 37, 5);
+
+	// DEST button (x=12, w=114)
+	const char* destLabel = "DEST:CAJA PC";
+	if (evDest == EVENT_DEST_PARTY) destLabel = "DEST:EQUIPO";
+	else if (evDest == EVENT_DEST_BANK) destLabel = "DEST:BANCO";
+	drawRetroButtonCentered(12, 185, 114, 17, RENDER_RGBA(0xEE, 0xF3, 0xFC, 0xFF), darkBord, destLabel, false);
+
+	// OT button (x=130, w=92)
+	char otLabel[20];
+	if (!curEv || curEv->ot_count == 0)
+		snprintf(otLabel, sizeof(otLabel), "OT:JUGADOR");
+	else
+		snprintf(otLabel, sizeof(otLabel), "OT:%.7s", curEv->ot_options[evOtIdx]);
+	bool otEnabled = (curEv && curEv->ot_count > 1);
+	drawRetroButtonCentered(130, 185, 92, 17, otEnabled ? btnFill : RENDER_RGBA(0xEA, 0xEC, 0xF2, 0xFF),
+		otEnabled ? darkBord : btnBord, otLabel, false);
+
+	// DV button (x=226, w=82)
+	const char* dvBtn = "DV:FIJO";
+	u32 dvFill = RENDER_RGBA(0xEA, 0xEC, 0xF2, 0xFF);
+	u32 dvBord = btnBord;
+	if (curEv && eventAllowsManualShiny(curEv))
+	{
+		dvBtn = evForceShiny ? "DV:SHINY" : "DV:AZAR";
+		dvFill = evForceShiny ? goldFill : btnFill;
+		dvBord = darkBord;
+	}
+	else if (curEv && isEventShinyEffective(curEv, false))
+	{
+		dvBtn = "DV:SHINY";
+		dvFill = activeFill;
+	}
+	drawRetroButtonCentered(226, 185, 82, 17, dvFill, dvBord, dvBtn, false);
+
+	// Inject & Back Row (y=205, h=18)
+	drawRetroButtonCentered(12, 205, 194, 18, goldFill, darkBord, "INYECTAR EVENTO", true);
+	drawRetroButtonCentered(210, 205, 98, 18, btnFill, btnBord, "VOLVER", false);
 }
 
 void boxViewerUpdate(void)
@@ -1376,6 +1926,11 @@ void boxViewerUpdate(void)
 		pkmEditorUpdate();
 		return;
 	}
+	if (currentMode == VIEW_MODE_EVENTS)
+	{
+		eventsViewerUpdate();
+		return;
+	}
 
 	if ((ks.held & (KEY_L | KEY_R)) && (ks.down & KEY_SELECT))
 	{
@@ -1402,6 +1957,7 @@ void boxViewerUpdate(void)
 		{
 			editorRow = 0;
 			editorCol = 0;
+			editorPage = 0;
 			currentMode = VIEW_MODE_PKM_EDIT;
 			return;
 		}
@@ -1541,62 +2097,74 @@ void boxViewerUpdate(void)
 		touchHoldStartTime = 0;
 		touchHoldSourcePkm = NULL;
 
-		// Bottom shortcut bar touch handling:
-		if (touchWithin(px, py, 4, 200, 312, 32))
+		// Bottom shortcut bar touch handling (Barra B: y=188..235):
+		if (touchWithin(px, py, 4, 188, 312, 48))
 		{
 			if (!batchMode)
 			{
-				if (px <= 89)
+				if (py <= 211)
 				{
-					bagCatalogMode = false;
-					bagDeleteConfirm = false;
-					currentMode = VIEW_MODE_BAG;
-					return;
-				}
-				else if (px <= 142)
-				{
-					batchMode = true;
-					batchSourceBox = cursor.box->box;
-					batchSourceInBank = cursor.box->inBank;
-					memset(batchSelected, 0, sizeof(batchSelected));
-					showBoxAlert("MODO MULTI ACTIVO", "TOCA POKEMON PARA MARCARLOS");
-					return;
-				}
-				else if (px <= 233)
-				{
-					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+					if (px <= 109)
 					{
-						editorRow = 0;
-						editorCol = 0;
-						editorPage = 0;
-						currentMode = VIEW_MODE_PKM_EDIT;
+						bagCatalogMode = false;
+						bagDeleteConfirm = false;
+						currentMode = VIEW_MODE_BAG;
 						return;
+					}
+					else if (px <= 209)
+					{
+						batchMode = true;
+						batchSourceBox = cursor.box->box;
+						batchSourceInBank = cursor.box->inBank;
+						memset(batchSelected, 0, sizeof(batchSelected));
+						showBoxAlert("MODO MULTI ACTIVO", "TOCA POKEMON PARA MARCARLOS");
+						return;
+					}
+					else
+					{
+						if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+						{
+							editorRow = 0;
+							editorCol = 0;
+							editorPage = 0;
+							currentMode = VIEW_MODE_PKM_EDIT;
+							return;
+						}
 					}
 				}
 				else
 				{
-					if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+					if (px <= 199)
 					{
-						dexCursor = cursor.vPkm->nationalDex;
-						if (dexCursor < 1 || dexCursor > 251) dexCursor = 1;
-						dexScroll = (dexCursor > 4 ? dexCursor - 4 : 0);
-						if (dexScroll > 251 - 7) dexScroll = 251 - 7;
+						eventsRefreshCategory(false);
+						currentMode = VIEW_MODE_EVENTS;
+						return;
 					}
-					currentMode = VIEW_MODE_POKEDEX;
-					return;
+					else
+					{
+						if (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm))
+						{
+							dexCursor = cursor.vPkm->nationalDex;
+							if (dexCursor < 1 || dexCursor > 251) dexCursor = 1;
+							dexScroll = (dexCursor > 4 ? dexCursor - 4 : 0);
+							if (dexScroll > 251 - 7) dexScroll = 251 - 7;
+						}
+						currentMode = VIEW_MODE_POKEDEX;
+						return;
+					}
 				}
 			}
 			else
 			{
-				if (px <= 88)
+				if (py <= 211)
+				{
+					executeBatchMove();
+					return;
+				}
+				else if (px <= 159)
 				{
 					clearBatchSelection();
 					showBoxAlert("MODO MULTI CANCELADO", "SELECCION DESMARCADA");
-					return;
-				}
-				else if (px <= 224)
-				{
-					executeBatchMove();
 					return;
 				}
 				else
@@ -1621,12 +2189,13 @@ void boxViewerUpdate(void)
 		if (marginLeft > 0)
 		{
 			bool tappedBank = (marginLeft == 184);
-			if (batchMode && (tappedBank == batchSourceInBank) && (cursor.box->box == batchSourceBox))
+			CursorInbox* tappedBox = tappedBank ? &cursor.bk : &cursor.pc;
+			if (batchMode && (tappedBank == batchSourceInBank) && (tappedBox->box == batchSourceBox))
 			{
 				uint8_t tRow = (py - 40) / 24;
 				uint8_t tCol = (px - marginLeft) / 32;
 				uint8_t tSlot = tRow * 4 + tCol;
-				if (tSlot < cursor.box->vBox->capacity)
+				if (tSlot < tappedBox->vBox->capacity)
 				{
 					SAV_Pokemon* p = saveGetPkm(batchSourceBox, tSlot, batchSourceInBank);
 					if (p && !saveIsPkmEmpty(p))
@@ -1645,7 +2214,7 @@ void boxViewerUpdate(void)
 
 			computeSlot(cursor.box);
 
-			if (cursor.box->slot > cursor.box->vBox->capacity)
+			if (cursor.box->slot >= cursor.box->vBox->capacity)
 			{
 				cursor.box->row = (cursor.box->vBox->capacity-1) / BOX_COL_PKM_COUNT;
 				cursor.box->col = (cursor.box->vBox->capacity-1) % BOX_COL_PKM_COUNT;
@@ -1742,7 +2311,7 @@ void boxViewerUpdate(void)
 
 				computeSlot(cursor.box);
 
-				if (cursor.box->slot > cursor.box->vBox->capacity)
+				if (cursor.box->slot >= cursor.box->vBox->capacity)
 				{
 					cursor.box->row = (cursor.box->vBox->capacity-1) / BOX_COL_PKM_COUNT;
 					cursor.box->col = (cursor.box->vBox->capacity-1) % BOX_COL_PKM_COUNT;
@@ -1755,7 +2324,15 @@ void boxViewerUpdate(void)
 
 					if (touchHoldCloned && touchHoldSourcePkm)
 					{
-						if (!cursor.box->inBank && vgame <= POKEMON_YELLOW && touchHoldSourcePkm->heldItem != 0)
+						if (cursor.box->inBank && touchHoldSourcePkm->isEgg)
+						{
+							showBoxAlert("ACCION BLOQUEADA", "NO SE GUARDAN HUEVOS EN BANCO");
+						}
+						else if (!saveCanPlacePokemon(touchHoldSourcePkm, cursor.box->inBank))
+						{
+							showBoxAlert("OBJETO O ESPECIE INVALIDA", "ACCION NO VALIDA EN DESTINO");
+						}
+						else if (!cursor.box->inBank && vgame <= POKEMON_YELLOW && touchHoldSourcePkm->heldItem != 0)
 						{
 							showBoxAlert("OBJETO EQUIPADO EN POKEMON", "ACCION NO VALIDA PARA 1A GEN");
 						}
@@ -1818,28 +2395,26 @@ static void boxViewerDrawTop(void)
 			gfxDrawGamePokemonSprite(52 + 8, 40 + 8, pkm->nationalDex, vgame);
 	}
 
-	/** Stats & Portrait Panels with clean shared horizontal border at y=104..111 **/
-	gfxDrawPanel(52, 104, 19, 10);
+	/** Separated Portrait (y=40..111) & Stats (y=112..199) Panels - Opcion 1 **/
+	gfxDrawPanel(52, 112, 19, 9);
 	gfxDrawPanel(52, 40, 7, 7);
-	renderDrawRect(116, 104, 8, 8, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	fontDrawChar8(116, 104, 0x7A);
 
 	if ((cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm)) || cursor.sPkm)
 	{
 		SAV_Pokemon* pkm = (cursor.vPkm && !saveIsPkmEmpty(cursor.vPkm) ? cursor.vPkm : cursor.sPkm);
 
-		/** Nickname & Shiny Star (Row 1: y=46) **/
-		fontDrawString8(126, 46, pkm->nameNK);
+		/** Nickname & Shiny Star (Row 1: y=47) **/
+		fontDrawString8(126, 47, pkm->nameNK);
 		if (saveIsPkmShiny(pkm))
 		{
-			gfxDrawShinyStar(210, 45);
+			gfxDrawShinyStar(210, 46);
 		}
 
-		/** Status (Row 2: y=59, inline) **/
-		fontDrawString8(126, 59, dataText(TEXT_STATUS));
+		/** Status (Row 2: y=62, inline) **/
+		fontDrawString8(126, 62, dataText(TEXT_STATUS));
 		if (pkm->currentHP == 0)
 		{
-			fontDrawString8(182, 59, dataStatus(STATUS_KO));
+			fontDrawString8(182, 62, dataStatus(STATUS_KO));
 		}
 		else
 		{
@@ -1853,16 +2428,16 @@ static void boxViewerDrawTop(void)
 				case STATUS_PARALYZED: status = 6; break;
 				default: status = 0; break;
 			}
-			fontDrawString8(182, 59, dataStatus(status));
+			fontDrawString8(182, 62, dataStatus(status));
 		}
 
-		/** OTrainer (Row 3: y=72, inline) & IDNo (Row 4: y=85, inline) **/
-		fontDrawString8(126, 72, dataText(TEXT_OT));
-		fontDrawString8(150, 72, pkm->nameOT);
-		fontDrawChar8(126, 85, CHAR8_ID);
-		fontDrawChar8(134, 85, CHAR8_NO);
-		fontDrawChar8(142, 85, CHAR8_SLASH);
-		fontDrawPaddingUInt16(150, 85, pkm->originalTID);
+		/** OTrainer (Row 3: y=77, inline) & IDNo (Row 4: y=92, inline) **/
+		fontDrawString8(126, 77, dataText(TEXT_OT));
+		fontDrawString8(150, 77, pkm->nameOT);
+		fontDrawChar8(126, 92, CHAR8_ID);
+		fontDrawChar8(134, 92, CHAR8_NO);
+		fontDrawChar8(142, 92, CHAR8_SLASH);
+		fontDrawPaddingUInt16(150, 92, pkm->originalTID);
 
 		/** Level & Life Bar (Right Folio Top: x=228..343) **/
 		gfxDrawLevel(272, 44, pkm->level);
@@ -1891,37 +2466,37 @@ static void boxViewerDrawTop(void)
 			}
 		}
 
-		/** Stats Table (Left Panel: x=52..219, inner x=60..211, y=112..191) **/
-		fontDrawString8(146, 113, dataText(TEXT_IV));
-		fontDrawString8(184, 113, dataText(TEXT_EV));
-		renderDrawRect(60, 122, 150, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
+		/** Stats Table (Left Panel: x=52..219, inner x=60..211, y=120..191) **/
+		fontDrawString8(146, 121, dataText(TEXT_IV));
+		fontDrawString8(184, 121, dataText(TEXT_EV));
+		renderDrawRect(60, 130, 150, 1, RENDER_RGBA(0x90, 0x98, 0xA8, 0xFF));
 
-		fontDrawString8(60, 126, dataText(TEXT_HP));
-		fontDrawString8(60, 139, dataText(TEXT_ATTACK));
-		fontDrawString8(60, 152, dataText(TEXT_DEFENSE));
-		fontDrawString8(60, 165, dataText(TEXT_SPEED));
-		fontDrawString8(60, 178, dataText(TEXT_SPECIAL));
+		fontDrawString8(60, 133, dataText(TEXT_HP));
+		fontDrawString8(60, 145, dataText(TEXT_ATTACK));
+		fontDrawString8(60, 157, dataText(TEXT_DEFENSE));
+		fontDrawString8(60, 169, dataText(TEXT_SPEED));
+		fontDrawString8(60, 181, dataText(TEXT_SPECIAL));
 
 		// Stat Values (horizontally aligned on the same row as each label)
-		fontDrawFromRightUInt32(134, 126, pkm->maxHP);
-		fontDrawFromRightUInt32(134, 139, pkm->ATK);
-		fontDrawFromRightUInt32(134, 152, pkm->DEF);
-		fontDrawFromRightUInt32(134, 165, pkm->SPE);
-		fontDrawFromRightUInt32(134, 178, pkm->SPC);
+		fontDrawFromRightUInt32(134, 133, pkm->maxHP);
+		fontDrawFromRightUInt32(134, 145, pkm->ATK);
+		fontDrawFromRightUInt32(134, 157, pkm->DEF);
+		fontDrawFromRightUInt32(134, 169, pkm->SPE);
+		fontDrawFromRightUInt32(134, 181, pkm->SPC);
 
 		// IVs
-		fontDrawFromRightUInt32(160, 126, pkm->IVs[STAT_HP]);
-		fontDrawFromRightUInt32(160, 139, pkm->IVs[STAT_ATTACK]);
-		fontDrawFromRightUInt32(160, 152, pkm->IVs[STAT_DEFENSE]);
-		fontDrawFromRightUInt32(160, 165, pkm->IVs[STAT_SPEED]);
-		fontDrawFromRightUInt32(160, 178, pkm->IVs[STAT_SPECIAL]);
+		fontDrawFromRightUInt32(160, 133, pkm->IVs[STAT_HP]);
+		fontDrawFromRightUInt32(160, 145, pkm->IVs[STAT_ATTACK]);
+		fontDrawFromRightUInt32(160, 157, pkm->IVs[STAT_DEFENSE]);
+		fontDrawFromRightUInt32(160, 169, pkm->IVs[STAT_SPEED]);
+		fontDrawFromRightUInt32(160, 181, pkm->IVs[STAT_SPECIAL]);
 
 		// EVs
-		fontDrawFromRightUInt32(202, 126, pkm->EVs[STAT_HP]);
-		fontDrawFromRightUInt32(202, 139, pkm->EVs[STAT_ATTACK]);
-		fontDrawFromRightUInt32(202, 152, pkm->EVs[STAT_DEFENSE]);
-		fontDrawFromRightUInt32(202, 165, pkm->EVs[STAT_SPEED]);
-		fontDrawFromRightUInt32(202, 178, pkm->EVs[STAT_SPECIAL]);
+		fontDrawFromRightUInt32(202, 133, pkm->EVs[STAT_HP]);
+		fontDrawFromRightUInt32(202, 145, pkm->EVs[STAT_ATTACK]);
+		fontDrawFromRightUInt32(202, 157, pkm->EVs[STAT_DEFENSE]);
+		fontDrawFromRightUInt32(202, 169, pkm->EVs[STAT_SPEED]);
+		fontDrawFromRightUInt32(202, 181, pkm->EVs[STAT_SPECIAL]);
 	}
 }
 
@@ -1933,50 +2508,33 @@ static void boxViewerDrawBottom(void)
 	boxDrawBox(&cursor.pc, 0, 0);
 	boxDrawBox(&cursor.bk, 176, 0);
 
-	// Bottom Shortcut Bar below both 5x4 boxes (x=4..315, inner x=12..307, inner y=208..223)
-	char8_t buf[32];
-	renderDrawRect(4, 200, 312, 32, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
-	gfxDrawPanel(4, 200, 37, 2);
+	// Bottom Shortcut Bar - Barra B (2 rows inside x=4..315, y=188..235)
+	renderDrawRect(4, 188, 312, 48, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF));
+	gfxDrawPanel(4, 188, 37, 4);
 
 	u32 btnFill = RENDER_RGBA(0xDE, 0xE2, 0xEC, 0xFF);
 	u32 btnBord = RENDER_RGBA(0x78, 0x82, 0x96, 0xFF);
+	u32 darkBord = RENDER_RGBA(0x28, 0x30, 0x40, 0xFF);
 
 	if (!batchMode)
 	{
-		// 4 Retro Buttons matching Image 5/6 aesthetic
-		drawRetroButton(12, 208, 76, 16, btnFill, btnBord);
-		fontConvertString(buf, "X:MOCHILA");
-		fontDrawString8(14, 212, buf);
+		// Row 1 (y=196..210, h=15): BOLSA | MULTI | EDITAR (clean text, no key labels)
+		drawRetroButtonCentered(12, 196, 96, 15, btnFill, btnBord, "BOLSA", false);
+		drawRetroButtonCentered(112, 196, 96, 15, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), darkBord, "MULTI", false);
+		drawRetroButtonCentered(212, 196, 96, 15, btnFill, btnBord, "EDITAR", false);
 
-		drawRetroButton(91, 208, 50, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		fontConvertString(buf, "MULTI");
-		fontDrawString8(96, 212, buf);
-
-		drawRetroButton(144, 208, 88, 16, btnFill, btnBord);
-		fontConvertString(buf, "START:EDIT");
-		fontDrawString8(148, 212, buf);
-
-		drawRetroButton(235, 208, 72, 16, btnFill, btnBord);
-		fontConvertString(buf, "Y:DEX");
-		fontDrawString8(251, 212, buf);
+		// Row 2 (y=213..227, h=15): ► REGALO MISTERIOSO | POKEDEX
+		drawRetroButtonCentered(12, 213, 186, 15, RENDER_RGBA(0xFF, 0xDC, 0x40, 0xFF), darkBord, "REGALO MISTERIOSO", true);
+		drawRetroButtonCentered(202, 213, 106, 15, btnFill, btnBord, "POKEDEX", false);
 	}
 	else
 	{
-		drawRetroButton(12, 208, 74, 16, btnFill, btnBord);
-		fontConvertString(buf, "B:CANCEL");
-		fontDrawString8(17, 212, buf);
+		char batchStr[36];
+		snprintf(batchStr, sizeof(batchStr), "MOVER SELECCION (%d)", (int)getBatchSelectedCount());
+		drawRetroButtonCentered(12, 196, 296, 15, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), darkBord, batchStr, true);
 
-		// Batch Action in authentic Game Boy dialog style (strictly inside y=208..223)
-		drawRetroButton(90, 208, 132, 16, RENDER_RGBA(0xF8, 0xF8, 0xF8, 0xFF), RENDER_RGBA(0x28, 0x30, 0x40, 0xFF));
-		char batchStr[32];
-		snprintf(batchStr, sizeof(batchStr), "MOVER (%d)", (int)getBatchSelectedCount());
-		fontConvertString(buf, batchStr);
-		fontDrawChar8(98, 212, 0xED); // Classic Pokemon triangle arrow ►
-		fontDrawString8(110, 212, buf);
-
-		drawRetroButton(226, 208, 80, 16, RENDER_RGBA(0xEC, 0xDC, 0xDC, 0xFF), RENDER_RGBA(0x98, 0x78, 0x78, 0xFF));
-		fontConvertString(buf, "Y:LIMPIAR");
-		fontDrawString8(230, 212, buf);
+		drawRetroButtonCentered(12, 213, 146, 15, btnFill, btnBord, "CANCELAR (B)", false);
+		drawRetroButtonCentered(162, 213, 146, 15, RENDER_RGBA(0xEC, 0xDC, 0xDC, 0xFF), RENDER_RGBA(0x98, 0x78, 0x78, 0xFF), "LIMPIAR (Y)", false);
 	}
 
 	if (cursor.sPkm)
@@ -2034,6 +2592,8 @@ void boxViewerDraw(void)
 		bagViewerDrawTop();
 	else if (currentMode == VIEW_MODE_POKEDEX || currentMode == VIEW_MODE_DIPLOMA)
 		dexViewerDrawTop();
+	else if (currentMode == VIEW_MODE_EVENTS)
+		eventsViewerDrawTop();
 	else
 		boxViewerDrawTop();
 
@@ -2044,6 +2604,8 @@ void boxViewerDraw(void)
 		dexViewerDrawBottom();
 	else if (currentMode == VIEW_MODE_PKM_EDIT)
 		pkmEditorDrawBottom();
+	else if (currentMode == VIEW_MODE_EVENTS)
+		eventsViewerDrawBottom();
 	else
 		boxViewerDrawBottom();
 
@@ -2245,6 +2807,149 @@ static void getEditorElementRect(uint8_t row, uint8_t col, int16_t* rx, int16_t*
 	}
 }
 
+static uint8_t countPkmMoves(const SAV_Pokemon* pkm)
+{
+	uint8_t cnt = 0;
+	for (uint8_t i = 0; i < 4; i++)
+		if (pkm->moves[i] != 0) cnt++;
+	return cnt;
+}
+
+static bool pkmHasMoveOtherSlot(const SAV_Pokemon* pkm, uint8_t moveId, uint8_t skipSlot)
+{
+	if (moveId == 0) return false;
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		if (i != skipSlot && pkm->moves[i] == moveId) return true;
+	}
+	return false;
+}
+
+static void compactPkmMoves(SAV_Pokemon* pkm)
+{
+	uint8_t dst = 0;
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		if (pkm->moves[i] != 0)
+		{
+			if (dst != i)
+			{
+				pkm->moves[dst] = pkm->moves[i];
+				pkm->PPs[dst] = pkm->PPs[i];
+				pkm->PPUps[dst] = pkm->PPUps[i];
+			}
+			dst++;
+		}
+	}
+	for (uint8_t i = dst; i < 4; i++)
+	{
+		pkm->moves[i] = 0;
+		pkm->PPs[i] = 0;
+		pkm->PPUps[i] = 0;
+	}
+}
+
+static uint8_t cycleValidMove(const SAV_Pokemon* pkm, uint8_t slot, int8_t dir, uint8_t maxMove)
+{
+	uint8_t m = pkm->moves[slot];
+	if (m == 0) m = (dir < 0) ? 1 : maxMove;
+	for (uint16_t step = 0; step < maxMove; step++)
+	{
+		if (dir < 0) m = (m > 1) ? (m - 1) : maxMove;
+		else m = (m < maxMove) ? (m + 1) : 1;
+		if (!pkmHasMoveOtherSlot(pkm, m, slot)) return m;
+	}
+	return (m == 0) ? 1 : m;
+}
+
+static void setMoveAndCompact(SAV_Pokemon* pkm, uint8_t slot, uint8_t newMove)
+{
+	pkm->moves[slot] = newMove;
+	pkm->PPUps[slot] = 0;
+	pkm->PPs[slot] = PersonalMove(newMove)->PP;
+	compactPkmMoves(pkm);
+	for (uint8_t i = 0; i < 4; i++)
+	{
+		if (pkm->moves[i] == newMove)
+		{
+			editorMoveSlot = i;
+			break;
+		}
+	}
+}
+
+static void deleteMoveAndCompact(SAV_Pokemon* pkm, uint8_t slot)
+{
+	if (pkm->moves[slot] == 0) return;
+	if (countPkmMoves(pkm) <= 1)
+	{
+		showBoxAlert("ACCION BLOQUEADA", "EL POKEMON DEBE TENER 1 ATAQUE");
+		return;
+	}
+	pkm->moves[slot] = 0;
+	pkm->PPs[slot] = 0;
+	pkm->PPUps[slot] = 0;
+	compactPkmMoves(pkm);
+	uint8_t cnt = countPkmMoves(pkm);
+	if (editorMoveSlot >= cnt && cnt > 0)
+		editorMoveSlot = cnt - 1;
+}
+
+static bool isValidEditableHeldItem(uint8_t id)
+{
+	if (id == 0) return true;
+	uint8_t p = items_table[id].pocket;
+	return (p == ITEM_POCKET_ITEMS || p == ITEM_POCKET_BALLS);
+}
+
+static uint8_t nextValidHeldItem(uint8_t cur)
+{
+	uint8_t id = cur;
+	for (uint16_t i = 0; i < 256; i++)
+	{
+		id = (id < 255) ? (id + 1) : 0;
+		if (isValidEditableHeldItem(id)) return id;
+	}
+	return 0;
+}
+
+static uint8_t prevValidHeldItem(uint8_t cur)
+{
+	uint8_t id = cur;
+	for (uint16_t i = 0; i < 256; i++)
+	{
+		id = (id > 0) ? (id - 1) : 255;
+		if (isValidEditableHeldItem(id)) return id;
+	}
+	return 0;
+}
+
+static void hatchEggInEditor(SAV_Pokemon* pkm)
+{
+	pkm->isEgg = false;
+	pkm->friendship = 120;
+	saveSetPkmLevel(pkm, 5);
+
+	const char8_t* spName = dataSpecies(pkm->nationalDex);
+	bool endSeen = false;
+	for (uint8_t i = 0; i < 11; i++)
+	{
+		if (endSeen) pkm->nameNK[i] = 0x50;
+		else
+		{
+			pkm->nameNK[i] = spName[i];
+			if (spName[i] == 0x50) endSeen = true;
+		}
+	}
+	pkm->nameNK[10] = 0x50;
+
+	if (!cursor.box->inBank)
+	{
+		pokedexAddOwned(pkm->nationalDex);
+		pokedexAddSeen(pkm->nationalDex);
+	}
+}
+
 static void pkmEditorUpdate(void)
 {
 	SAV_Pokemon* pkm = cursor.vPkm;
@@ -2308,28 +3013,34 @@ static void pkmEditorUpdate(void)
 
 		if (ks.down & KEY_LEFT)
 		{
-			uint8_t m = pkm->moves[editorMoveSlot];
-			if (m > 1) m--;
-			else m = maxMove;
-			pkm->moves[editorMoveSlot] = m;
-			pkm->PPs[editorMoveSlot] = PersonalMove(m)->PP;
+			if (pkm->isEgg)
+			{
+				showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+				return;
+			}
+			setMoveAndCompact(pkm, editorMoveSlot, cycleValidMove(pkm, editorMoveSlot, -1, maxMove));
 			return;
 		}
 
 		if (ks.down & (KEY_RIGHT | KEY_A))
 		{
-			uint8_t m = pkm->moves[editorMoveSlot];
-			if (m < maxMove) m++;
-			else m = 1;
-			pkm->moves[editorMoveSlot] = m;
-			pkm->PPs[editorMoveSlot] = PersonalMove(m)->PP;
+			if (pkm->isEgg)
+			{
+				showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+				return;
+			}
+			setMoveAndCompact(pkm, editorMoveSlot, cycleValidMove(pkm, editorMoveSlot, 1, maxMove));
 			return;
 		}
 
 		if (ks.down & KEY_X)
 		{
-			pkm->moves[editorMoveSlot] = 0;
-			pkm->PPs[editorMoveSlot] = 0;
+			if (pkm->isEgg)
+			{
+				showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+				return;
+			}
+			deleteMoveAndCompact(pkm, editorMoveSlot);
 			return;
 		}
 
@@ -2346,26 +3057,32 @@ static void pkmEditorUpdate(void)
 					editorMoveSlot = s;
 					if (px >= 36 && px <= 58) // Left button (-)
 					{
-						uint8_t m = pkm->moves[s];
-						if (m > 1) m--;
-						else m = maxMove;
-						pkm->moves[s] = m;
-						pkm->PPs[s] = PersonalMove(m)->PP;
+						if (pkm->isEgg)
+						{
+							showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+							return;
+						}
+						setMoveAndCompact(pkm, s, cycleValidMove(pkm, s, -1, maxMove));
 						return;
 					}
 					if (px >= 166 && px <= 188) // Right button (+)
 					{
-						uint8_t m = pkm->moves[s];
-						if (m < maxMove) m++;
-						else m = 1;
-						pkm->moves[s] = m;
-						pkm->PPs[s] = PersonalMove(m)->PP;
+						if (pkm->isEgg)
+						{
+							showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+							return;
+						}
+						setMoveAndCompact(pkm, s, cycleValidMove(pkm, s, 1, maxMove));
 						return;
 					}
 					if (px >= 250 && px <= 300) // BOR button
 					{
-						pkm->moves[s] = 0;
-						pkm->PPs[s] = 0;
+						if (pkm->isEgg)
+						{
+							showBoxAlert("HUEVO PROTEGIDO", "NO SE EDITAN ATAQUES DE HUEVO");
+							return;
+						}
+						deleteMoveAndCompact(pkm, s);
 						return;
 					}
 					return;
@@ -2438,8 +3155,7 @@ static void pkmEditorUpdate(void)
 				if (editorCol > 0) editorCol--;
 				else
 				{
-					if (pkm->heldItem > 0) pkm->heldItem--;
-					else pkm->heldItem = 255;
+					pkm->heldItem = prevValidHeldItem(pkm->heldItem);
 				}
 			}
 		}
@@ -2476,8 +3192,7 @@ static void pkmEditorUpdate(void)
 				if (editorCol < 1) editorCol++;
 				else
 				{
-					if (pkm->heldItem < 255) pkm->heldItem++;
-					else pkm->heldItem = 0;
+					pkm->heldItem = nextValidHeldItem(pkm->heldItem);
 				}
 			}
 		}
@@ -2534,16 +3249,14 @@ static void pkmEditorUpdate(void)
 
 			if (pkm->isEgg)
 			{
-				pkm->isEgg = false;
-				saveSetPkmLevel(pkm, 5);
+				hatchEggInEditor(pkm);
 				showBoxAlert("HUEVO ECLOSIONADO", "POKEMON A NIVEL 5");
 			}
 			else if (canHold)
 			{
 				if (editorCol == 0)
 				{
-					if (pkm->heldItem < 255) pkm->heldItem++;
-					else pkm->heldItem = 0;
+					pkm->heldItem = nextValidHeldItem(pkm->heldItem);
 				}
 				else
 				{
@@ -2592,8 +3305,7 @@ static void pkmEditorUpdate(void)
 		{
 			if (canHold && !pkm->isEgg && editorCol == 0)
 			{
-				if (pkm->heldItem > 0) pkm->heldItem--;
-				else pkm->heldItem = 255;
+				pkm->heldItem = prevValidHeldItem(pkm->heldItem);
 			}
 		}
 		return;
@@ -2726,8 +3438,7 @@ static void pkmEditorUpdate(void)
 			if (pkm->isEgg)
 			{
 				editorRow = 6; editorCol = 0;
-				pkm->isEgg = false;
-				saveSetPkmLevel(pkm, 5);
+				hatchEggInEditor(pkm);
 				showBoxAlert("HUEVO ECLOSIONADO", "POKEMON A NIVEL 5");
 				return;
 			}
@@ -2736,15 +3447,13 @@ static void pkmEditorUpdate(void)
 				if (px >= 44 && px <= 70)
 				{
 					editorRow = 6; editorCol = 0;
-					if (pkm->heldItem > 0) pkm->heldItem--;
-					else pkm->heldItem = 255;
+					pkm->heldItem = prevValidHeldItem(pkm->heldItem);
 					return;
 				}
 				if (px >= 174 && px <= 200)
 				{
 					editorRow = 6; editorCol = 0;
-					if (pkm->heldItem < 255) pkm->heldItem++;
-					else pkm->heldItem = 0;
+					pkm->heldItem = nextValidHeldItem(pkm->heldItem);
 					return;
 				}
 				if (px >= 204 && px <= 302)

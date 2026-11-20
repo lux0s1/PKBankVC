@@ -28,6 +28,10 @@ typedef enum
 	OFFSET_BOX_2 = 0x6000,				///< Second group of PokÃ©mon list
 
 	/* Game (Gen II) */
+	OFFSET_PARTY_GS_FSAV       = 0x288A,
+	OFFSET_PARTY_GS_JSAV       = 0x283E,
+	OFFSET_PARTY_C_FSAV        = 0x2865,
+	OFFSET_PARTY_C_JSAV        = 0x281A,
 	OFFSET_CURRENT_IDX_GS_FSAV = 0x2724,
 	OFFSET_CURRENT_IDX_GS_JSAV = 0x2705,
 	OFFSET_CURRENT_IDX_C_FSAV  = 0x2700,
@@ -572,27 +576,35 @@ static void saveInjectPokemon(uint8_t* save, const SAV_Pokemon* pkm, uint8_t ind
 		}
 	}
 
-	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (index) * sizeName;
 
-	bool hasOTTerm = false;
+	bool otDone = false;
 	for (uint8_t i = 0; i < sizeName; i++)
 	{
-		pkmbuf[i] = pkm->nameOT[i];
-		if (pkmbuf[i] == 0x50) hasOTTerm = true;
+		if (otDone) pkmbuf[i] = 0x50;
+		else
+		{
+			pkmbuf[i] = pkm->nameOT[i];
+			if (pkmbuf[i] == 0x50) otDone = true;
+		}
 	}
-	if (!hasOTTerm && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
+	if (!otDone && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
 
-	// Count (1) + Species (capacity+1) + PokÃ©mon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
+	// Count (1) + Species (capacity+1) + Pokémon (capacity*sizePkm) + OT_Name (capacity*sizeName) + NK_Name.index (index*sizeName)
 	pkmbuf = save + 2 + capacity * (sizePkm + 1) + (capacity + index) * sizeName;
 
-	bool hasNKTerm = false;
+	bool nkDone = false;
 	for (uint8_t i = 0; i < sizeName; i++)
 	{
-		pkmbuf[i] = pkm->nameNK[i];
-		if (pkmbuf[i] == 0x50) hasNKTerm = true;
+		if (nkDone) pkmbuf[i] = 0x50;
+		else
+		{
+			pkmbuf[i] = pkm->nameNK[i];
+			if (pkmbuf[i] == 0x50) nkDone = true;
+		}
 	}
-	if (!hasNKTerm && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
+	if (!nkDone && sizeName > 0) pkmbuf[sizeName-1] = 0x50;
 }
 
 static bool saveIsValidPokemonList(const uint8_t* save, uint32_t listOffset, uint8_t sizePkm, uint8_t capacity, bool isGen2, bool isBank)
@@ -716,7 +728,7 @@ SAV_Pokemon* saveGetPkm(uint8_t box, uint8_t slot, bool inBank)
 /**
  * @brief Checks if a PokÃ©mon is compatible with the target destination.
  */
-static bool canPlacePokemon(const SAV_Pokemon* pkm, bool inBank)
+bool saveCanPlacePokemon(const SAV_Pokemon* pkm, bool inBank)
 {
 	if (saveIsPkmEmpty(pkm)) return true;
 
@@ -764,7 +776,7 @@ static bool _saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 
 bool saveMovePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBanked)
 {
-	if (!canPlacePokemon(src, dstBanked) || !canPlacePokemon(dst, srcBanked))
+	if (!saveCanPlacePokemon(src, dstBanked) || !saveCanPlacePokemon(dst, srcBanked))
 		return false;
 
 	return _saveMovePkm(dst, src);
@@ -789,7 +801,7 @@ static bool _savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src)
 
 bool savePastePkm(SAV_Pokemon* dst, SAV_Pokemon* src, bool srcBanked, bool dstBanked)
 {
-	if (!canPlacePokemon(src, dstBanked))
+	if (!saveCanPlacePokemon(src, dstBanked))
 		return false;
 
 	return _savePastePkm(dst, src);
@@ -805,6 +817,14 @@ const char8_t* saveGetTrainerName(void)
 	if (vgame >= POKEMON_GOLD)
 		return save + OFFSET_OT_NAME_GSC;
 	return save + (lgame == POKEMON_JP ? OFFSET_OT_NAME_JSAV : OFFSET_OT_NAME_FSAV);
+}
+
+uint16_t saveGetTrainerID(void)
+{
+	if (vgame >= POKEMON_GOLD)
+		return ((uint16_t)save[0x2009] << 8) | save[0x200A];
+	uint16_t off = (lgame == POKEMON_JP ? 0x2600 : 0x2605);
+	return ((uint16_t)save[off] << 8) | save[off + 1];
 }
 
 const char8_t* saveGetRivalName(void)
@@ -849,6 +869,19 @@ uint16_t saveGetGamePokedexOwnedCount(void)
 			count++;
 	}
 	return count;
+}
+
+bool saveHasGame150Kanto(void)
+{
+	const uint8_t* owned = saveGetPokedexOwned();
+	if (!owned) return false;
+	for (uint16_t i = 1; i <= 150; i++)
+	{
+		uint8_t bit = (uint8_t)(i - 1);
+		if (((owned[bit / 8] >> (bit % 8)) & 1) == 0)
+			return false;
+	}
+	return true;
 }
 
 bool saveIsGamePokedexComplete(void)
@@ -1325,9 +1358,47 @@ bool saveIsPkmShiny(const SAV_Pokemon* pkm)
 	        ((pkm->IVs[STAT_ATK] & 2) == 2));
 }
 
+static const uint8_t speciesGrowthRate[252] = {
+	0,3,3,3,3,3,3,3,3,3,0,0,0,0,0,0,3,3,3,0,0,0,0,0,0,0,0,0,0,3,3,3,3,3,3,4,4,0,0,4,4,0,0,3,3,3,0,0,0,0,
+	0,0,0,0,0,0,0,0,5,5,3,3,3,3,3,3,3,3,3,3,3,3,5,5,3,3,3,0,0,0,0,0,0,0,0,0,0,0,0,0,5,5,3,3,3,0,0,0,0,0,
+	0,0,5,5,0,0,0,0,0,0,0,5,5,4,0,0,0,0,0,0,5,5,0,0,0,0,0,5,5,5,5,5,0,0,0,0,0,0,0,0,0,0,5,5,5,5,5,5,5,5,
+	5,3,3,3,3,3,3,3,3,3,3,0,0,0,0,4,4,4,4,0,5,5,0,4,4,4,4,0,0,3,3,3,3,4,4,0,3,3,3,3,4,3,3,0,0,0,0,0,3,0,
+	4,0,0,0,0,0,0,3,0,4,4,0,0,3,5,3,0,0,0,0,5,5,4,0,0,4,5,5,5,5,0,0,0,0,5,4,0,0,0,0,0,5,4,5,5,5,5,5,5,5,
+	5,3
+};
+
+uint32_t saveCalcExpForLevel(uint8_t species, uint8_t level)
+{
+	if (level <= 1) return 0;
+	if (level > 100) level = 100;
+	uint8_t gr = (species <= PKM_COUNT) ? speciesGrowthRate[species] : 0;
+	int32_t n = (int32_t)level;
+	int32_t n2 = n * n;
+	int32_t n3 = n2 * n;
+	int32_t exp = 0;
+
+	switch (gr)
+	{
+		case 3: // Medium Slow
+			exp = (6 * n3) / 5 - 15 * n2 + 100 * n - 140;
+			break;
+		case 4: // Fast
+			exp = (4 * n3) / 5;
+			break;
+		case 5: // Slow
+			exp = (5 * n3) / 4;
+			break;
+		case 0: // Medium Fast
+		default:
+			exp = n3;
+			break;
+	}
+	return (exp > 0 ? (uint32_t)exp : 0);
+}
+
 void saveRecalculateStats(SAV_Pokemon* pkm)
 {
-	if (!pkm || saveIsPkmEmpty(pkm) || pkm->isEgg) return;
+	if (!pkm || saveIsPkmEmpty(pkm)) return;
 
 	// In Gen 1 and 2, HP DV is calculated from the lowest bits of ATK, DEF, SPE, SPC:
 	pkm->IVs[STAT_HP] = ((pkm->IVs[STAT_ATK] & 0x1) << 3) |
@@ -1384,10 +1455,148 @@ void saveSetPkmLevel(SAV_Pokemon* pkm, uint8_t newLevel)
 	if (newLevel > 100) newLevel = 100;
 	pkm->currentLevel = newLevel;
 	pkm->level = newLevel;
-	uint32_t exp = (uint32_t)newLevel * (uint32_t)newLevel * (uint32_t)newLevel;
-	if (exp > 1000000) exp = 1000000;
-	pkm->experience = exp;
+	pkm->experience = saveCalcExpForLevel(pkm->nationalDex, newLevel);
+	pkm->moved = true;
 	saveRecalculateStats(pkm);
+}
+
+bool saveInjectPartyPkm(const SAV_Pokemon* pkm)
+{
+	if (!pkm || saveIsPkmEmpty(pkm)) return false;
+	if (!saveCanPlacePokemon(pkm, false)) return false;
+
+	uint8_t nameSize = (lgame == POKEMON_JP ? 6 : 11);
+
+	if (vgame <= POKEMON_YELLOW)
+	{
+		uint16_t partyOff = (lgame == POKEMON_JP ? OFFSET_PARTY_JSAV : OFFSET_PARTY_FSAV);
+		uint8_t count = save[partyOff];
+		if (count >= 6) return false;
+
+		SAV_Pokemon copy = *pkm;
+		saveRecalculateStats(&copy);
+		if (copy.currentHP == 0 || copy.currentHP > copy.maxHP)
+			copy.currentHP = copy.maxHP;
+
+		save[partyOff] = count + 1;
+		save[partyOff + 2 + count] = 0xFF;
+		saveInjectPokemon(save + partyOff, &copy, count, 0x2C, nameSize, 6);
+
+		if (!copy.isEgg)
+		{
+			pokedexAddOwned(copy.nationalDex);
+			pokedexAddSeen(copy.nationalDex);
+		}
+		saveFixChecksum(save);
+		return true;
+	}
+	else
+	{
+		uint16_t partyOff;
+		if (lgame == POKEMON_JP)
+			partyOff = (vgame == POKEMON_CRYSTAL ? OFFSET_PARTY_C_JSAV : OFFSET_PARTY_GS_JSAV);
+		else
+			partyOff = (vgame == POKEMON_CRYSTAL ? OFFSET_PARTY_C_FSAV : OFFSET_PARTY_GS_FSAV);
+
+		uint8_t count = save[partyOff];
+		if (count >= 6) return false;
+
+		SAV_Pokemon copy = *pkm;
+		saveRecalculateStats(&copy);
+		if (copy.currentHP == 0 || copy.currentHP > copy.maxHP)
+			copy.currentHP = copy.maxHP;
+
+		save[partyOff] = count + 1;
+		save[partyOff + 1 + count] = (copy.isEgg ? 0xFD : copy.nationalDex);
+		save[partyOff + 2 + count] = 0xFF;
+
+		// Gen II Party struct (48 bytes = 0x30) at partyOff + 8 + count * 0x30
+		uint8_t* pkmbuf = save + partyOff + 8 + count * 0x30;
+		pkmbuf[0x00] = copy.nationalDex;
+		pkmbuf[0x01] = copy.heldItem;
+		pkmbuf[0x02] = copy.moves[0];
+		pkmbuf[0x03] = copy.moves[1];
+		pkmbuf[0x04] = copy.moves[2];
+		pkmbuf[0x05] = copy.moves[3];
+		pkmbuf[0x06] = copy.originalTID >> 8;
+		pkmbuf[0x07] = copy.originalTID & 0xFF;
+		pkmbuf[0x08] = (copy.experience >> 16) & 0xFF;
+		pkmbuf[0x09] = (copy.experience >> 8) & 0xFF;
+		pkmbuf[0x0A] = copy.experience & 0xFF;
+		pkmbuf[0x0B] = copy.EVs[0] >> 8;
+		pkmbuf[0x0C] = copy.EVs[0] & 0xFF;
+		pkmbuf[0x0D] = copy.EVs[1] >> 8;
+		pkmbuf[0x0E] = copy.EVs[1] & 0xFF;
+		pkmbuf[0x0F] = copy.EVs[2] >> 8;
+		pkmbuf[0x10] = copy.EVs[2] & 0xFF;
+		pkmbuf[0x11] = copy.EVs[3] >> 8;
+		pkmbuf[0x12] = copy.EVs[3] & 0xFF;
+		pkmbuf[0x13] = copy.EVs[4] >> 8;
+		pkmbuf[0x14] = copy.EVs[4] & 0xFF;
+		pkmbuf[0x15] = ((copy.IVs[1] & 0x0F) << 4) | (copy.IVs[2] & 0x0F);
+		pkmbuf[0x16] = ((copy.IVs[3] & 0x0F) << 4) | (copy.IVs[4] & 0x0F);
+		pkmbuf[0x17] = ((copy.PPUps[0] & 0x3) << 6) | (copy.PPs[0] & 0x3F);
+		pkmbuf[0x18] = ((copy.PPUps[1] & 0x3) << 6) | (copy.PPs[1] & 0x3F);
+		pkmbuf[0x19] = ((copy.PPUps[2] & 0x3) << 6) | (copy.PPs[2] & 0x3F);
+		pkmbuf[0x1A] = ((copy.PPUps[3] & 0x3) << 6) | (copy.PPs[3] & 0x3F);
+		pkmbuf[0x1B] = copy.friendship;
+		pkmbuf[0x1C] = copy.pokerus;
+		pkmbuf[0x1D] = copy.caughtData >> 8;
+		pkmbuf[0x1E] = copy.caughtData & 0xFF;
+		pkmbuf[0x1F] = copy.currentLevel;
+		pkmbuf[0x20] = 0; // Status
+		pkmbuf[0x21] = 0; // Unused
+		pkmbuf[0x22] = copy.currentHP >> 8;
+		pkmbuf[0x23] = copy.currentHP & 0xFF;
+		pkmbuf[0x24] = copy.maxHP >> 8;
+		pkmbuf[0x25] = copy.maxHP & 0xFF;
+		pkmbuf[0x26] = copy.ATK >> 8;
+		pkmbuf[0x27] = copy.ATK & 0xFF;
+		pkmbuf[0x28] = copy.DEF >> 8;
+		pkmbuf[0x29] = copy.DEF & 0xFF;
+		pkmbuf[0x2A] = copy.SPE >> 8;
+		pkmbuf[0x2B] = copy.SPE & 0xFF;
+		pkmbuf[0x2C] = copy.SPC >> 8;
+		pkmbuf[0x2D] = copy.SPC & 0xFF;
+		pkmbuf[0x2E] = copy.SPD >> 8;
+		pkmbuf[0x2F] = copy.SPD & 0xFF;
+
+		// OT Name at partyOff + 8 + 6 * 0x30 + count * nameSize
+		uint8_t* otBuf = save + partyOff + 8 + 6 * 0x30 + count * nameSize;
+		bool otDone = false;
+		for (uint8_t i = 0; i < nameSize; i++)
+		{
+			if (otDone) otBuf[i] = 0x50;
+			else
+			{
+				otBuf[i] = copy.nameOT[i];
+				if (otBuf[i] == 0x50) otDone = true;
+			}
+		}
+		if (!otDone && nameSize > 0) otBuf[nameSize - 1] = 0x50;
+
+		// Nickname at partyOff + 8 + 6 * 0x30 + (6 + count) * nameSize
+		uint8_t* nkBuf = save + partyOff + 8 + 6 * 0x30 + (6 + count) * nameSize;
+		bool nkDone = false;
+		for (uint8_t i = 0; i < nameSize; i++)
+		{
+			if (nkDone) nkBuf[i] = 0x50;
+			else
+			{
+				nkBuf[i] = copy.nameNK[i];
+				if (nkBuf[i] == 0x50) nkDone = true;
+			}
+		}
+		if (!nkDone && nameSize > 0) nkBuf[nameSize - 1] = 0x50;
+
+		if (!copy.isEgg)
+		{
+			pokedexAddOwned(copy.nationalDex);
+			pokedexAddSeen(copy.nationalDex);
+		}
+		saveFixChecksum(save);
+		return true;
+	}
 }
 
 void saveCommitBank(void)
@@ -1416,12 +1625,12 @@ uint8_t saveGetTradeEvolveTarget(const SAV_Pokemon* pkm, bool inGen1)
 	// Item trade evolutions (Gen 2: in Bank or Gen 2 cartridge)
 	if (!inGen1)
 	{
-		if (pkm->nationalDex == SPECIES_POLIWHIRL && pkm->heldItem == 82) return 186; // Politoed
-		if (pkm->nationalDex == SPECIES_SLOWPOKE && pkm->heldItem == 82) return 199;  // Slowking
-		if (pkm->nationalDex == SPECIES_ONIX && pkm->heldItem == 143) return 208;      // Steelix
-		if (pkm->nationalDex == SPECIES_SCYTHER && pkm->heldItem == 143) return 212;   // Scizor
-		if (pkm->nationalDex == SPECIES_SEADRA && pkm->heldItem == 150) return 230;    // Kingdra
-		if (pkm->nationalDex == SPECIES_PORYGON && pkm->heldItem == 171) return 233;   // Porygon2
+		if (pkm->nationalDex == SPECIES_POLIWHIRL && pkm->heldItem == 82) return 186;  // Politoed (King's Rock)
+		if (pkm->nationalDex == SPECIES_SLOWPOKE && pkm->heldItem == 82) return 199;   // Slowking (King's Rock)
+		if (pkm->nationalDex == SPECIES_ONIX && pkm->heldItem == 143) return 208;      // Steelix (Metal Coat)
+		if (pkm->nationalDex == SPECIES_SCYTHER && pkm->heldItem == 143) return 212;   // Scizor (Metal Coat)
+		if (pkm->nationalDex == SPECIES_SEADRA && pkm->heldItem == 151) return 230;    // Kingdra (Dragon Scale 0x97)
+		if (pkm->nationalDex == SPECIES_PORYGON && pkm->heldItem == 172) return 233;   // Porygon2 (Up-Grade 0xAC)
 	}
 
 	return 0;
@@ -1458,7 +1667,16 @@ bool saveTradeEvolve(SAV_Pokemon* pkm, bool inGen1)
 	if (hasDefaultName)
 	{
 		const char8_t* newName = dataSpecies(target);
-		memcpy(pkm->nameNK, newName, 10);
+		bool endSeen = false;
+		for (uint8_t i = 0; i < 11; i++)
+		{
+			if (endSeen) pkm->nameNK[i] = 0x50;
+			else
+			{
+				pkm->nameNK[i] = newName[i];
+				if (newName[i] == 0x50) endSeen = true;
+			}
+		}
 		pkm->nameNK[10] = 0x50;
 	}
 
@@ -1474,7 +1692,7 @@ bool saveTradeEvolve(SAV_Pokemon* pkm, bool inGen1)
 	pkm->moved = true;
 
 	bankStoreRecordSpecies(target, vgame);
-	if (!inGen1 || target <= 151)
+	if (vgame >= POKEMON_GOLD || (inGen1 && target <= SPECIES_MEW))
 	{
 		pokedexAddOwned(target);
 		pokedexAddSeen(target);
