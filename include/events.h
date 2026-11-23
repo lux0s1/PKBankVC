@@ -23,6 +23,7 @@ typedef enum
 	EVENT_DV_RANDOM = 1,
 	EVENT_DV_SHINY_GEN2 = 2,
 	EVENT_DV_RANDOM_NON_SHINY_GEN2 = 3,
+	EVENT_DV_ODDS_SHINY_GEN2 = 4,
 } EventDvMode;
 
 typedef enum
@@ -56,6 +57,7 @@ typedef struct
 	EventTidMode tid_mode;
 	uint16_t fixed_tid;
 	EventDvMode dv_mode;
+	uint16_t shiny_chance_permille; // 10 = 1.0%, 5 = 0.5% for ODDS_SHINY_GEN2
 	uint8_t fixed_dvs[4]; // {atk, def, spe, spc}
 	uint8_t gen1_cr_or_g2_item;
 	bool is_egg;

@@ -6,7 +6,7 @@
 
 **PKBankVC** is an all-in-one, homebrew Pokémon Bank, Event Distributor, and Save Manager built specifically for the Game Boy (Gen I) and Game Boy Color (Gen II) Virtual Console titles on the Nintendo 3DS family of systems.
 
-Featuring a dedicated 100-box storage cloud (up to 3,200 Pokémon), a **48-event Historical Mystery Gift injector** (Gen I, Gen II, PCNY Shinies, and PCNY Eggs), a per-game Game Freak Mew reward, an authentic animated Pokédex, full Bag & PC Item storage, and a touch-screen Pokémon Editor with save anti-corruption safeguards verified against `PKHeX`.
+Featuring a dedicated 100-box storage cloud (up to 3,200 Pokémon), a **105-event Historical Mystery Gift injector** (Gen I, Gen II, PCNY Shinies/Odds, and PCNY Eggs), a per-game Game Freak Mew reward, an authentic animated Pokédex, full Bag & PC Item storage, and a touch-screen Pokémon Editor with save anti-corruption safeguards verified against `PKHeX`.
 
 ---
 
@@ -63,10 +63,10 @@ Press **START** (or tap **EDITAR**) on any Pokémon to access the unified touch 
 - **Move Manager (Tab 2):** Modify moves with generation legality rules (`1..165` in Gen I, `1..251` in Gen II/Bank), automatic move-slot compaction, duplicate/empty-moveset protection, and automatic base PP calculation.
 - **Touch-and-Hold Quick Clone:** Hold any Pokémon on the bottom screen for 2.5 seconds to clone and place it anywhere in your boxes.
 
-### 🎀 Historical Mystery Gifts (48 Events)
-Access the **REGALO MISTERIOSO** menu from the 2-row bottom toolbar to distribute **48 historically accurate Gen I & Gen II events**:
-- **4 Categories:** **GEN 1** (`14` events, including `MEW TOUR EEUU`, `MEW MEXICO ASH`, `PIKACHU SURF`, Stadium prizes, and custom `MEW SHINY GLITCH` with Player OT/TID), **GEN 2** (`5` events, including `PKHeX`-legal Crystal VC GS Ball `CELEBI ENCINAR VC`), **PCNY** (`12` Shiny Pokémon Center New York distributions `PCNYa–d`), and **HUEVOS** (`17` PCNY Strange Eggs with 5 hatch cycles).
-- **Flexible Delivery & Options:** Inject directly into the first free **PC Box** (`CAJA PC`), active **Party** (`EQUIPO`), or **Bank** (`BANCO`); cycle official **OT** presets; and toggle **`DV: AZAR / SHINY`** on random-DV events.
+### 🎀 Historical Mystery Gifts (105 Events)
+Access the **REGALO MISTERIOSO** menu from the 2-row bottom toolbar to distribute **105 historically accurate Gen I & Gen II events**:
+- **4 Categories:** **GEN 1** (`15` events, including `MEW TOUR EEUU`, `MEW MEXICO ASH`, `PIKACHU SURF` / `PIKACHU STADIUM`, `PSYDUCK AMNESIA`, Stadium prizes, and custom `MEW SHINY GLITCH` with Player OT/TID), **GEN 2** (`5` events, including `PKHeX`-legal Crystal VC GS Ball `CELEBI ENCINAR VC`, `CELEBI TOUR EU/US`, and *Stadium 2* rewards), **PCNY** (`19` *Pokémon Center New York* distributions `PCNYa–d`, including Legendary Birds, Mewtwo, Johto/Kanto starters, Legendary Beasts/Tower duo, plus `MEW PCNY` `0.5%` and `CELEBI PCNY` `1.0%` using `ODDS_SHINY_GEN2`), and **HUEVOS** (`66` PCNY Strange Egg variants with `5` hatch cycles).
+- **Flexible Delivery & Options:** Inject directly into the first free **PC Box** (`CAJA PC`), active **Party** (`EQUIPO`), or **Bank** (`BANCO`); cycle official **OT** presets; jump lists quickly with **ZL / ZR**; and toggle **`DV: AZAR / PROB / SHINY`** on random or odds-based events.
 
 ### 🎁 Mystery Gift: GF Mew (UK 2016)
 - Register the original 150 Kanto Pokémon (`#1` to `#150`) in your **active save's Pokédex** to unlock a **1× per-game** reward.

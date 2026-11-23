@@ -100,7 +100,7 @@ static int16_t evScroll = 0;
 static uint8_t evOtIdx = 0;
 static bool evForceShiny = false;
 static EventInjectDest evDest = EVENT_DEST_PC_BOX;
-static uint16_t evFilteredIndices[64];
+static uint16_t evFilteredIndices[128];
 static uint16_t evFilteredCount = 0;
 
 static bool boxExitRequested = false;
@@ -1455,7 +1455,7 @@ static bool isEventShinyEffective(const HistoricalEvent* ev, bool forceShiny)
 
 static void eventsRefreshCategory(bool resetCursor)
 {
-	evFilteredCount = eventsGetByCategory(evCategory, evFilteredIndices, 64);
+	evFilteredCount = eventsGetByCategory(evCategory, evFilteredIndices, 128);
 	if (evFilteredCount == 0)
 	{
 		evCursor = 0;
@@ -1538,6 +1538,25 @@ static void eventsViewerUpdate(void)
 		evCursor++;
 		if (evCursor >= (int16_t)evFilteredCount) evCursor = 0;
 		if (evCursor < evScroll) evScroll = evCursor;
+		if (evCursor >= evScroll + 6) evScroll = evCursor - 5;
+		evOtIdx = 0;
+		curEv = eventsGet(evFilteredIndices[evCursor]);
+		if (!eventAllowsManualShiny(curEv)) evForceShiny = false;
+		return;
+	}
+	if ((ks.down & KEY_ZL) && evFilteredCount > 0)
+	{
+		evCursor = (evCursor > 6) ? (evCursor - 6) : 0;
+		if (evCursor < evScroll) evScroll = evCursor;
+		evOtIdx = 0;
+		curEv = eventsGet(evFilteredIndices[evCursor]);
+		if (!eventAllowsManualShiny(curEv)) evForceShiny = false;
+		return;
+	}
+	if ((ks.down & KEY_ZR) && evFilteredCount > 0)
+	{
+		int16_t maxIdx = (int16_t)evFilteredCount - 1;
+		evCursor = (evCursor + 6 <= maxIdx) ? (evCursor + 6) : maxIdx;
 		if (evCursor >= evScroll + 6) evScroll = evCursor - 5;
 		evOtIdx = 0;
 		curEv = eventsGet(evFilteredIndices[evCursor]);
@@ -1880,7 +1899,9 @@ static void eventsViewerDrawBottom(void)
 	u32 dvBord = btnBord;
 	if (curEv && eventAllowsManualShiny(curEv))
 	{
-		dvBtn = evForceShiny ? "DV:SHINY" : "DV:AZAR";
+		if (evForceShiny) dvBtn = "DV:SHINY";
+		else if (curEv->dv_mode == EVENT_DV_ODDS_SHINY_GEN2) dvBtn = "DV:PROB";
+		else dvBtn = "DV:AZAR";
 		dvFill = evForceShiny ? goldFill : btnFill;
 		dvBord = darkBord;
 	}
